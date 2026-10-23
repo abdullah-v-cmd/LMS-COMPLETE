@@ -1,8 +1,24 @@
 import { prisma } from '../../utils/prisma';
 import { CorrectionStatus, ExamSessionStatus, UserRole } from '@prisma/client';
 import { AuthenticatedUser } from '../../types';
+import { calculateGrade, DEFAULT_GRADE_BANDS } from './grading';
+import { env } from '../../config/env';
+import { signReportCard, verifyReportCardSignature } from './report-card-integrity';
 
 export class ExamsService {
+  static async getGradingScale(institutionId: string) {
+    const bands = await prisma.institutionGradeBand.findMany({ where: { institutionId }, orderBy: { minimumPercentage: 'desc' }, select: { id: true, minimumPercentage: true, gradeLetter: true, gpa: true } });
+    return { source: bands.length ? 'institution' : 'default', bands: bands.length ? bands : DEFAULT_GRADE_BANDS };
+  }
+
+  static async setGradingScale(institutionId: string, bands: Array<{ minimumPercentage: number; gradeLetter: string; gpa: number }>) {
+    return prisma.$transaction(async (tx) => {
+      await tx.institutionGradeBand.deleteMany({ where: { institutionId } });
+      await tx.institutionGradeBand.createMany({ data: bands.map((band) => ({ ...band, gradeLetter: band.gradeLetter.toUpperCase(), institutionId })) });
+      return tx.institutionGradeBand.findMany({ where: { institutionId }, orderBy: { minimumPercentage: 'desc' }, select: { id: true, minimumPercentage: true, gradeLetter: true, gpa: true } });
+    }, { isolationLevel: 'Serializable' });
+  }
+
   static async getExamSessions(institutionId: string) {
     return prisma.examSession.findMany({
       where: { institutionId },
@@ -344,6 +360,9 @@ export class ExamsService {
       throw { status: 404, message: 'Exam session not found' };
     }
 
+    const savedGradeBands = await prisma.institutionGradeBand.findMany({ where: { institutionId }, select: { minimumPercentage: true, gradeLetter: true, gpa: true } });
+    const gradeBands = savedGradeBands.length ? savedGradeBands : DEFAULT_GRADE_BANDS;
+
     if (session.schedules.length === 0) throw { status: 409, message: 'An exam session needs at least one schedule before results can be published' };
     const pendingChanges = await prisma.gradeChangeRequest.count({
       where: { status: CorrectionStatus.PENDING, examMark: { examSchedule: { examSessionId } } },
@@ -387,14 +406,7 @@ export class ExamsService {
       const reportCardIds: Array<{ id: string; studentId: string; percentage: number }> = [];
       for (const [studentId, agg] of Object.entries(studentAggregates)) {
         const percentage = agg.totalMax > 0 ? (agg.totalObtained / agg.totalMax) * 100 : 0;
-        let gpa = 0.0;
-        let letter = 'F';
-
-        if (percentage >= 90) { gpa = 4.0; letter = 'A+'; }
-        else if (percentage >= 80) { gpa = 3.5; letter = 'A'; }
-        else if (percentage >= 70) { gpa = 3.0; letter = 'B'; }
-        else if (percentage >= 60) { gpa = 2.5; letter = 'C'; }
-        else if (percentage >= 50) { gpa = 2.0; letter = 'D'; }
+        const { gpa, gradeLetter: letter } = calculateGrade(percentage, gradeBands);
 
         const card = await tx.studentReportCard.upsert({
           where: {
@@ -431,6 +443,10 @@ export class ExamsService {
         const current = ranked[index];
         const rank = 1 + ranked.filter((item) => item.percentage > current.percentage).length;
         await tx.studentReportCard.update({ where: { id: current.id }, data: { rank } });
+      }
+
+      for (const card of await tx.studentReportCard.findMany({ where: { institutionId, examSessionId } })) {
+        await tx.studentReportCard.update({ where: { id: card.id }, data: { verificationSignature: signReportCard(card, env.REPORT_CARD_SIGNING_SECRET ?? env.JWT_ACCESS_SECRET) } });
       }
 
       await tx.examSession.update({
@@ -488,5 +504,27 @@ export class ExamsService {
       include: { examSession: true, student: { include: { user: true } } },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  static async verifyReportCard(institutionId: string, user: AuthenticatedUser, cardId: string, providedSignature: string) {
+    const card = await prisma.studentReportCard.findFirst({
+      where: { id: cardId, institutionId, isPublished: true },
+      include: { student: { select: { userId: true } } },
+    });
+    if (!card) throw { status: 404, message: 'Published report card not found' };
+
+    let mayView = user.role !== UserRole.ROLE_STUDENT && user.role !== UserRole.ROLE_PARENT;
+    if (user.role === UserRole.ROLE_STUDENT) mayView = card.student.userId === user.id;
+    if (user.role === UserRole.ROLE_PARENT) {
+      const parent = await prisma.parentProfile.findFirst({ where: { userId: user.id, institutionId } });
+      mayView = Boolean(parent && await prisma.studentParentRelation.findFirst({ where: { parentId: parent.id, studentId: card.studentId } }));
+    }
+    if (!mayView) throw { status: 403, message: 'You are not authorized to verify this report card' };
+
+    const valid = Boolean(card.verificationSignature)
+      && verifyReportCardSignature(card, card.verificationSignature!, env.REPORT_CARD_SIGNING_SECRET ?? env.JWT_ACCESS_SECRET)
+      && verifyReportCardSignature(card, providedSignature, env.REPORT_CARD_SIGNING_SECRET ?? env.JWT_ACCESS_SECRET)
+      && card.verificationSignature!.toLowerCase() === providedSignature.toLowerCase();
+    return { valid, cardId: card.id, publishedAt: card.publishedAt };
   }
 }

@@ -31,6 +31,7 @@ jobs:
       NODE_ENV: test
       JWT_ACCESS_SECRET: ci_access_secret_0123456789abcdef
       JWT_REFRESH_SECRET: ci_refresh_secret_0123456789abcdef
+      REPORT_CARD_SIGNING_SECRET: ci_report_card_signing_secret_0123456789abcdef
       CLIENT_URL: http://localhost:5173
     steps:
       - uses: actions/checkout@v4

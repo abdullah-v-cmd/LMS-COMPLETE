@@ -95,7 +95,9 @@ d:\lms2/
 - Added migration `server/prisma/migrations/20261024180000_exam_invigilators/migration.sql`.
 - Evidence: Prisma schema validation and generation passed; server TypeScript build passed; client production build passed; exam schema tests passed 5/5; `git diff --check` passed. DB workflow test and migration were not run because configured `lms2` is not confirmed as isolated and local Postgres is unreachable.
 - Checkpoint commit: `40d48a1a0537ef60fe5741c211ee499a23056d7f` (local only; no Git remote configured).
-- Still outstanding in Phase 5: configurable grade bands/GPA schema and official print-ready/security-verifiable report cards. Phase 7 payroll, hostel, counseling and remaining requirements remain. No deployment or remote push occurred.
+- Phase 5 continuation in progress this turn: configurable institution grade bands and GPA calculations, print UI, HMAC signing and authorized report-card verification endpoint are implemented with two pending migrations. Prisma validation/generation and server/client builds pass; 13 focused tests across four files pass. The DB workflow test additions, migrations, and browser printing are not verified.
+- **Exact next action**: Implement Phase 7 payroll, hostel, and counseling from HR-004/AUX-003/COUN-001–003, then remaining library/transport/analytics requirements. Continue to avoid migrations or DB integration runs against unconfirmed `lms2`.
+- This continuation's commit hash will be recorded in TASKS.md and MEMORY.md after commit. No deployment or remote push occurred.
 
 ---
 

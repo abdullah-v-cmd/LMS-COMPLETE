@@ -7,6 +7,7 @@ const baseline = {
   DATABASE_URL: 'postgresql://app:secret@db.example.test:5432/lms?sslmode=require',
   JWT_ACCESS_SECRET: 'access-secret-random-value-0123456789abcdef',
   JWT_REFRESH_SECRET: 'refresh-secret-random-value-0123456789abcdef',
+  REPORT_CARD_SIGNING_SECRET: 'report-card-signing-secret-random-0123456789abcdef',
   CLIENT_URL: 'https://school.example.test',
 };
 

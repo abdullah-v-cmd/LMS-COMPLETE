@@ -14,6 +14,7 @@ export const envSchema = z.object({
   DATABASE_URL: z.string().url().refine((value) => value.startsWith('postgresql://') || value.startsWith('postgres://'), 'DATABASE_URL must be a PostgreSQL connection URL'),
   JWT_ACCESS_SECRET: z.string().min(16, 'JWT_ACCESS_SECRET must be at least 16 chars'),
   JWT_REFRESH_SECRET: z.string().min(16, 'JWT_REFRESH_SECRET must be at least 16 chars'),
+  REPORT_CARD_SIGNING_SECRET: z.string().min(16).optional(),
   JWT_ACCESS_EXPIRY: z.string().default('15m'),
   JWT_REFRESH_EXPIRY: z.string().default('7d'),
   CLIENT_URL: z.string().url().default('http://localhost:5173'),
@@ -34,6 +35,9 @@ export const envSchema = z.object({
   }
   if (config.JWT_ACCESS_SECRET === config.JWT_REFRESH_SECRET) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['JWT_REFRESH_SECRET'], message: 'Production access and refresh secrets must differ' });
+  }
+  if (!config.REPORT_CARD_SIGNING_SECRET || config.REPORT_CARD_SIGNING_SECRET.length < 32 || /your_|change.?me|example|default/i.test(config.REPORT_CARD_SIGNING_SECRET)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['REPORT_CARD_SIGNING_SECRET'], message: 'Production report card signing secret must be a unique random value of at least 32 characters' });
   }
   if (!config.CLIENT_URL.startsWith('https://')) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['CLIENT_URL'], message: 'Production CLIENT_URL must use HTTPS' });

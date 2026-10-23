@@ -4,6 +4,14 @@ import { sendSuccess } from '../../utils/response';
 import { AuthenticatedRequest } from '../../types';
 
 export class ExamsController {
+  static async getGradingScale(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try { return sendSuccess(res, await ExamsService.getGradingScale(req.institutionId!)); } catch (error) { next(error); }
+  }
+
+  static async setGradingScale(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try { return sendSuccess(res, await ExamsService.setGradingScale(req.institutionId!, req.body.bands)); } catch (error) { next(error); }
+  }
+
   static async getInvigilatorCandidates(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try { return sendSuccess(res, await ExamsService.getInvigilatorCandidates(req.institutionId!)); } catch (error) { next(error); }
   }
@@ -95,5 +103,9 @@ export class ExamsController {
     } catch (error) {
       next(error);
     }
+  }
+
+  static async verifyReportCard(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try { return sendSuccess(res, await ExamsService.verifyReportCard(req.institutionId!, req.user!, req.params.id, req.query.signature as string)); } catch (error) { next(error); }
   }
 }

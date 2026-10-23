@@ -251,7 +251,9 @@ All examination routes are mounted under `/api/v1/exams` and require authenticat
 | `POST /exams/results/publish` | `result:release` | Requires schedules, complete assigned rosters, and no pending correction requests; calculates report-card GPA, grade, and rank |
 | `GET /exams/report-cards` | `exam:read` | Students and parents see only published cards for themselves or linked children |
 
-The current grading scale is a fixed 0–4 GPA mapping in code; institution-configurable grading scales, weighted subjects, exam seating/invigilation, and printable signed/QR report cards remain future work.
+Institution grade bands are stored in `InstitutionGradeBand`; each percentage threshold is a lower-bound inclusive cutoff and must include 0%. A saved scale is used for subsequent result publication; existing published report cards are not silently recalculated when the scale changes. When no scale has been saved, the prior default mapping is retained. Scale writes use `exam:create`, tenant scoping, request validation, transaction, and an audit event.
+
+`StudentReportCard.verificationSignature` stores an HMAC-SHA256 signature over the immutable published result fields, using `REPORT_CARD_SIGNING_SECRET` (with the access-token secret as a development/test fallback). The production environment requires a distinct 32-character signing secret. `GET /exams/report-cards/:id/verify?signature=...` requires exam-read permission and confirms tenant scope plus student/guardian ownership before returning a validity result. Report cards can be printed from the Exams UI with summary grades and the integrity code. The printable layout and API signatures have unit/build coverage; browser print and DB-backed workflows remain unverified. Rotating the report-card signing secret invalidates old codes unless cards are re-signed through a controlled migration.
 
 ### Implemented Finance Routes
 All finance routes are mounted under `/api/v1/finance` with tenant context, fine-grained permissions, server validation, and mutation audit middleware.

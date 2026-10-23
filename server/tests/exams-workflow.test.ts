@@ -61,10 +61,23 @@ describe('Phase 5: examination workflow integration', () => {
     expect(reviewed.status).toBe(200);
     expect((await prisma.examMark.findUnique({ where: { id: marks.body.data[0].id } }))?.marksObtained).toBe(80);
 
+    const scale = await request(app).put('/api/v1/exams/grading-scale').set('Authorization', `Bearer ${controllerToken}`).send({ bands: [{ minimumPercentage: 0, gradeLetter: 'F', gpa: 0 }, { minimumPercentage: 70, gradeLetter: 'P', gpa: 3.25 }] });
+    expect(scale.status).toBe(200);
+    const savedScale = await prisma.institutionGradeBand.findMany({ where: { institutionId: controllerUser.institutionId! } });
+    expect(savedScale).toHaveLength(2);
+
     const published = await request(app).post('/api/v1/exams/results/publish').set('Authorization', `Bearer ${controllerToken}`).send({ examSessionId: session.body.data.id });
     expect(published.status).toBe(200);
     const cards = await request(app).get('/api/v1/exams/report-cards').set('Authorization', `Bearer ${controllerToken}`);
     expect(cards.status).toBe(200);
-    expect(cards.body.data.some((card: { examSession: { id: string }; studentId: string }) => card.examSession.id === session.body.data.id && card.studentId === student.id)).toBe(true);
+    const publishedCard = cards.body.data.find((card: { examSession: { id: string }; studentId: string }) => card.examSession.id === session.body.data.id && card.studentId === student.id);
+    expect(publishedCard).toMatchObject({ gradeLetter: 'P', gpa: 3.25 });
+    expect(publishedCard.verificationSignature).toMatch(/^[a-f0-9]{64}$/);
+    const verified = await request(app).get(`/api/v1/exams/report-cards/${publishedCard.id}/verify`).query({ signature: publishedCard.verificationSignature }).set('Authorization', `Bearer ${controllerToken}`);
+    expect(verified.status).toBe(200);
+    expect(verified.body.data.valid).toBe(true);
+    const tampered = await request(app).get(`/api/v1/exams/report-cards/${publishedCard.id}/verify`).query({ signature: '0'.repeat(64) }).set('Authorization', `Bearer ${controllerToken}`);
+    expect(tampered.status).toBe(200);
+    expect(tampered.body.data.valid).toBe(false);
   });
 });

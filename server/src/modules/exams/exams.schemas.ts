@@ -57,4 +57,17 @@ export const assignInvigilatorsSchema = z.object({
 }).refine((data) => new Set(data.userIds).size === data.userIds.length, {
   path: ['userIds'], message: 'An invigilator may only be assigned once per schedule',
 });
+export const gradingScaleSchema = z.object({
+  bands: z.array(z.object({
+    minimumPercentage: z.number().min(0).max(100),
+    gradeLetter: z.string().trim().min(1).max(8).regex(/^[A-Za-z][A-Za-z+\-]*$/),
+    gpa: z.number().min(0).max(4),
+  }).strict()).min(2).max(20),
+}).strict().superRefine(({ bands }, ctx) => {
+  const sorted = [...bands].sort((a, b) => a.minimumPercentage - b.minimumPercentage);
+  if (sorted[0]?.minimumPercentage !== 0) ctx.addIssue({ code: 'custom', path: ['bands'], message: 'A grading band must begin at 0 percent' });
+  if (new Set(bands.map((band) => band.minimumPercentage)).size !== bands.length) ctx.addIssue({ code: 'custom', path: ['bands'], message: 'Minimum percentages must be unique' });
+  if (new Set(bands.map((band) => band.gradeLetter.toUpperCase())).size !== bands.length) ctx.addIssue({ code: 'custom', path: ['bands'], message: 'Grade letters must be unique' });
+});
 export const reportCardsQuerySchema = z.object({ studentId: z.string().uuid().optional() });
+export const reportCardVerificationQuerySchema = z.object({ signature: z.string().regex(/^[a-f0-9]{64}$/i) });

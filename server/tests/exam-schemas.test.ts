@@ -5,6 +5,7 @@ import {
   enterMarksSchema,
   requestGradeChangeSchema,
   assignInvigilatorsSchema,
+  gradingScaleSchema,
 } from '../src/modules/exams/exams.schemas';
 
 describe('Examination request validation', () => {
@@ -53,5 +54,11 @@ describe('Examination request validation', () => {
     const id = 'a0184c98-7f09-4b16-a22c-95b8dbf2a010';
     expect(assignInvigilatorsSchema.safeParse({ userIds: [id, id] }).success).toBe(false);
     expect(assignInvigilatorsSchema.safeParse({ userIds: [id] }).success).toBe(true);
+  });
+
+  it('requires a zero threshold and unique grading thresholds and labels', () => {
+    expect(gradingScaleSchema.safeParse({ bands: [{ minimumPercentage: 60, gradeLetter: 'C', gpa: 2 }, { minimumPercentage: 80, gradeLetter: 'A', gpa: 4 }] }).success).toBe(false);
+    expect(gradingScaleSchema.safeParse({ bands: [{ minimumPercentage: 0, gradeLetter: 'F', gpa: 0 }, { minimumPercentage: 70, gradeLetter: 'P', gpa: 3 }] }).success).toBe(true);
+    expect(gradingScaleSchema.safeParse({ bands: [{ minimumPercentage: 0, gradeLetter: 'F', gpa: 0 }, { minimumPercentage: 0, gradeLetter: 'P', gpa: 3 }] }).success).toBe(false);
   });
 });

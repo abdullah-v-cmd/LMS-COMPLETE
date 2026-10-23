@@ -142,6 +142,7 @@ model Institution {
   subjectAttendanceRecords SubjectAttendanceRecord[]
   examSessions       ExamSession[]
   examInvigilators   ExamInvigilator[]
+  gradeBands         InstitutionGradeBand[]
   feeStructures      FeeStructure[]
   studentFeeInvoices StudentFeeInvoice[]
   feePayments        FeePayment[]
@@ -763,6 +764,23 @@ model ExamInvigilator {
   @@map("exam_invigilators")
 }
 
+model InstitutionGradeBand {
+  id                String   @id @default(uuid())
+  institutionId     String
+  minimumPercentage Float
+  gradeLetter       String
+  gpa               Float
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  institution Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+
+  @@unique([institutionId, minimumPercentage])
+  @@unique([institutionId, gradeLetter])
+  @@index([institutionId, minimumPercentage])
+  @@map("institution_grade_bands")
+}
+
 model ExamMark {
   id              String   @id @default(uuid())
   examScheduleId  String
@@ -810,6 +828,7 @@ model StudentReportCard {
   gradeLetter   String?
   rank          Int?
   remarks       String?
+  verificationSignature String?
   isPublished   Boolean   @default(false)
   publishedAt   DateTime?
   createdAt     DateTime  @default(now())
