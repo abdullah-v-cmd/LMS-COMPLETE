@@ -1091,10 +1091,22 @@ model BookCatalog {
 
   institution   Institution        @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   borrowRecords BookBorrowRecord[]
+  copies        BookCopy[]
 
   @@map("book_catalogs")
 }
 
+model BookCopy {
+  id        String   @id @default(uuid())
+  bookId    String
+  barcode   String   @unique
+  status    String   @default("AVAILABLE")
+  createdAt DateTime @default(now())
+  book      BookCatalog @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  loan      BookBorrowRecord?
+  @@index([bookId, status])
+  @@map("book_copies")
+}
 model LibraryFinePolicy {
   id              String   @id @default(uuid())
   institutionId   String   @unique
@@ -1111,6 +1123,7 @@ model LibraryFinePolicy {
 model BookBorrowRecord {
   id             String       @id @default(uuid())
   bookId         String
+  copyId         String?        @unique
   studentId      String
   borrowedAt     DateTime     @default(now())
   dueDate        DateTime
@@ -1120,6 +1133,7 @@ model BookBorrowRecord {
   issuedByUserId String
 
   book    BookCatalog    @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  copy    BookCopy?      @relation(fields: [copyId], references: [id], onDelete: SetNull)
   student StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   @@map("book_borrow_records")

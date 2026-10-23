@@ -325,3 +325,7 @@ Counselor-only case APIs are scoped to the creating counselor and tenant. Case t
   - Backend Express API on port 4000.
   - Frontend Vite React Dev Server on port 5173.
 - `docker-compose.yml` provides a one-click database container provisioning script with health checks and volume persistence.
+
+### Library copy inventory continuation
+
+`BookCopy` stores each physical item with a unique barcode and availability state. New catalog entries create individual copies; checkout claims one copy transactionally and associates it with a loan; check-in returns the physical item and synchronizes catalog quantity. Existing catalog rows are backfilled with synthetic `LIB-<book-id>-<copy-number>` barcodes. `GET /library/copies/barcode/:barcode` resolves a copy only within the active tenant. Migration `20261024260000_library_copies` is pending application and DB verification.

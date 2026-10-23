@@ -116,7 +116,7 @@ d:\lms2/
 - Added teacher section-scoped and parent linked-child referral permissions, counselor-only cases, authenticated AES-256-GCM encryption for new private content, audit payload redaction, support plans/follow-ups, configurable absence and grade rules, and an at-risk query limited to counselors. UI provides referring, private case work, support planning, and threshold management.
 - Production config now requires an independent `COUNSELING_ENCRYPTION_SECRET`; it is supplied to CI and documented for deployment. Migration `20261024230000_confidential_counseling` adds new encrypted fields/tables without dropping existing data.
 - Verification: Prisma validate/generate, server/client builds passed; 22 non-database tests passed across eight files. A DB workflow test was added but not run; migration not applied. Browser interactions and key rotation/decryption procedure remain unverified.
-- Exact next task: finish library ISBN/barcode copy tracking and lost-book recovery/reservations, then transport stops/documents/driver assignments/incidents, analytics, and Phases 8–9 verification. Never migrate or run DB tests against unconfirmed `lms2`.
+- Exact next task: review and commit library copy tracking; then finish lost-book recovery/reservations/inventory audits, then transport stops/documents/driver assignments/incidents, analytics, and Phases 8–9 verification. Never migrate or run DB tests against unconfirmed `lms2`.
 
 ---
 
@@ -128,3 +128,9 @@ d:\lms2/
 - Start frontend: `cd client && npm run dev` (Runs on `http://localhost:5173`)
 - Seed database (development only): `cd server && npm run db:seed`
 - Counseling checkpoint commit: `5029b916a7327ca4fa116f398a2511e79bf33706` (local only; no remote configured).
+
+### Phase 7 hostel/library continuation — 2026-10-24
+- Hostel incident implementation commit `5c034c0`; documentation commit `8635ba3`; residence check-in/out commit `b85fc42`. Local branch `main`; no remote configured.
+- Hostel stay/incident DB migrations and workflow tests are authored but pending isolated DB verification. PostgreSQL localhost port is closed; Docker engine unavailable.
+- Library copy tracking is currently uncommitted. `BookCopy` stores per-copy barcodes; checkouts/check-ins transition physical copy state; tenant barcode lookup and UI barcode display are connected. Migration `20261024260000_library_copies` includes a catalog inventory backfill. Prisma validate/generate and server/client builds passed; library schema tests passed 4/4. Database workflow/migration/browser verification not run.
+- Next: commit library changes; implement library lost recovery/reservations/inventory audits; transport stops/documents/driver assignments/incidents; advanced analytics; inspect and run available Phase 8–9 checks. Hosted CI, deployment, backup restore, accessibility, and performance checks remain unverified.

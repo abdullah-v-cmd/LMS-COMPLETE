@@ -6,12 +6,13 @@ import { validateRequest } from '../../middleware/validate';
 import { logAuditEvent } from '../../middleware/audit';
 import { PERMISSIONS } from '../../constants/permissions';
 import { LibraryController } from './library.controller';
-import { bookSchema, borrowSchema, recordIdSchema, finePolicySchema } from './library.schemas';
+import { bookSchema, borrowSchema, recordIdSchema, finePolicySchema, barcodeSchema } from './library.schemas';
 
 const router = Router();
 router.use(requireAuth, requireTenant);
 router.get('/books', requirePermission(PERMISSIONS.LIBRARY_READ), LibraryController.books);
 router.post('/books', requirePermission(PERMISSIONS.LIBRARY_MANAGE), validateRequest({ body: bookSchema }), logAuditEvent('LIBRARY_BOOK_CREATED', 'BookCatalog'), LibraryController.createBook);
+router.get('/copies/barcode/:barcode', requirePermission(PERMISSIONS.LIBRARY_READ), validateRequest({ params: barcodeSchema }), LibraryController.barcode);
 router.get('/loans', requirePermission(PERMISSIONS.LIBRARY_READ), LibraryController.loans);
 router.get('/fine-policy', requirePermission(PERMISSIONS.LIBRARY_READ), LibraryController.finePolicy);
 router.put('/fine-policy', requirePermission(PERMISSIONS.LIBRARY_MANAGE), validateRequest({ body: finePolicySchema }), logAuditEvent('LIBRARY_FINE_POLICY_UPDATED', 'LibraryFinePolicy'), LibraryController.saveFinePolicy);
