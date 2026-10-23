@@ -94,6 +94,7 @@ d:\lms2/
 - Implemented Phase 5 invigilator roster persistence, active teacher-profile candidate listing, schedule roster retrieval and replacement endpoints, audit event, tenant checks, published-session guard, overlapping schedule conflict detection, and a serializable transaction. Added roster UI and extended the DB workflow test with persistence/readback and conflict assertions.
 - Added migration `server/prisma/migrations/20261024180000_exam_invigilators/migration.sql`.
 - Evidence: Prisma schema validation and generation passed; server TypeScript build passed; client production build passed; exam schema tests passed 5/5; `git diff --check` passed. DB workflow test and migration were not run because configured `lms2` is not confirmed as isolated and local Postgres is unreachable.
+- Checkpoint commit: `40d48a1a0537ef60fe5741c211ee499a23056d7f` (local only; no Git remote configured).
 - Still outstanding in Phase 5: configurable grade bands/GPA schema and official print-ready/security-verifiable report cards. Phase 7 payroll, hostel, counseling and remaining requirements remain. No deployment or remote push occurred.
 
 ---
