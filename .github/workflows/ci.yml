@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: lms_ci
+          POSTGRES_USER: lms_ci
+          POSTGRES_PASSWORD: ci_only_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lms_ci -d lms_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://lms_ci:ci_only_password@localhost:5432/lms_ci?schema=public
+      NODE_ENV: test
+      JWT_ACCESS_SECRET: ci_access_secret_0123456789abcdef
+      JWT_REFRESH_SECRET: ci_refresh_secret_0123456789abcdef
+      CLIENT_URL: http://localhost:5173
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm --prefix server run db:deploy
+      - run: npm --prefix server run db:seed
+      - run: npm run build:server
+      - run: npm run build:client
+      - run: npm run test:server

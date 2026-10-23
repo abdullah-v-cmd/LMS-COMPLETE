@@ -4,6 +4,8 @@ import helmet from 'helmet';
 import { env } from './config/env';
 import { errorHandler } from './middleware/errorHandler';
 import { sendSuccess } from './utils/response';
+import { sendError } from './utils/response';
+import { prisma } from './utils/prisma';
 import authRoutes from './modules/auth/auth.routes';
 import institutionsRoutes from './modules/institutions/institutions.routes';
 import academicRoutes from './modules/academic/academic.routes';
@@ -44,6 +46,16 @@ export const createApp = () => {
       timestamp: new Date().toISOString(),
       environment: env.NODE_ENV,
     });
+  });
+
+  // Readiness check includes the database; never return connection details.
+  app.get(`${env.API_PREFIX}/health/ready`, async (_req: Request, res: Response) => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      return sendSuccess(res, { status: 'READY', service: 'school-lms-api', database: 'reachable', timestamp: new Date().toISOString() });
+    } catch {
+      return sendError(res, 503, 'NOT_READY', 'A required service is unavailable');
+    }
   });
 
   // Domain API Routes

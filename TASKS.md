@@ -1,10 +1,10 @@
 # Live Development Tracker (TASKS.md)
 
 ## Project Summary
-- **Current Phase**: Phases 4–7 in progress; Phases 8–9 not started
+- **Current Phase**: Phases 4–9 in progress; acceptance criteria remain across every in-progress phase
 - **Overall Task Counts by Status**:
-  - NOT_STARTED: 3
-  - IN_PROGRESS: 3
+  - NOT_STARTED: 0
+  - IN_PROGRESS: 6
   - BLOCKED: 0
   - IMPLEMENTED: 0
   - TESTING: 0
@@ -20,7 +20,8 @@
   - Phase 5: Exam setup, schedule roster/marks entry (including pasted CSV import), grade-change queue, publication controls, and report-card UI are implemented. Database workflow verification, invigilation, configurable grades, and printable verified report cards remain (TASK-P5-01).
   - Phase 6: Fee structure, invoice, collection, waiver, refund-request/review, ledger APIs and finance UI are implemented; provider integration and DB workflow verification remain (TASK-P6-01).
   - Phase 7: Staff leave and library catalog/circulation are implemented; payroll, transport, hostel, counseling, analytics and DB verification remain (TASK-P7-01).
-  - Phase 8: Comprehensive end-to-end multi-tenant security verification suite (TASK-P8-01).
+  - Phase 8: Disposable-PostgreSQL CI workflow now covers migrations, seed, builds and server suite; hosted CI evidence, full security matrix, accessibility, performance and restore tests remain (TASK-P8-01).
+  - Phase 9: Production env validation, DB readiness endpoint, CI workflow and operations guide implemented; hosted deployment, monitoring integration and restore drill remain (TASK-P9-01).
 - **Failed Tests**: The last focused validation run passed. The full database-backed suite has not been run in this checkpoint because the configured database is not confirmed as isolated and `localhost:5432` is unreachable.
 - **Active Blockers**: Database `lms2` from `server/.env` is not confirmed as a dedicated test database; the local PostgreSQL endpoint is unreachable. No migrations or DB tests were run.
 - **Last Verified Task**: TASK-P3-01 (Core LMS Courses, Modules, Lessons, Assignments & Grading).
@@ -182,11 +183,17 @@
   - **Requirement IDs**: Master Prompt Phase 8
   - **Feature**: Security and quality assurance
   - **Implementation Scope**: Cross-tenant access testing; role-permission matrix verification; business workflow tests; performance checks; accessibility review; dependency checks; backup/restoration tests; error handling/recovery tests; documented verification report with unresolved issues.
-  - **Status**: NOT_STARTED
+  - **Status**: IN_PROGRESS
+  - **Implemented**: Added `.github/workflows/ci.yml` with a job-scoped disposable PostgreSQL 16 service, migrations, seed, server/client builds, and the full server test suite. CI does not access local or production databases.
+  - **Remaining**: Hosted CI execution evidence; comprehensive role/tenant matrix; performance/load checks; WCAG audit; backup/restore drill; and recovery verification.
+  - **Evidence**: Workflow committed locally; no hosted runner was available to execute it during this checkpoint.
 
 ### Phase 9: Deployment Readiness
 - [ ] **TASK-P9-01**
   - **Requirement IDs**: Master Prompt Phase 9
   - **Feature**: Production and deployment readiness
   - **Implementation Scope**: Production configuration; secure environment setup; CI/CD; database migration strategy; backup/restoration instructions; monitoring/health checks; deployment and rollback instructions; administrator/user documentation; documented remaining prerequisites.
-  - **Status**: NOT_STARTED
+  - **Status**: IN_PROGRESS
+  - **Implemented**: Production env validation requires unique 32-character non-default JWT secrets, HTTPS client origin, and PostgreSQL URL with TLS. Added DB-aware readiness check and `DEPLOYMENT.md` for release, migration, backup/restore, monitoring, rollback and limitations.
+  - **Remaining**: Hosting/container release configuration, secret manager, production monitoring/alerts, backup schedule and witnessed restore drill. No deployment has been performed.
+  - **Verification**: Build checks are being rerun for the latest config/readiness changes; no hosted deployment or CI execution is claimed.
