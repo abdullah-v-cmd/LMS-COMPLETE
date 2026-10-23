@@ -104,6 +104,7 @@ d:\lms2/
 - Added a management/read API, role-specific permissions, a second service-level gate allowing only institution admin/principal and finance head, audited mutations, a salary setup screen, and monthly summary generation/history UI.
 - Verification: Prisma schema validation and generation, server/client builds passed; focused pure tests passed 16/16 across five files. Payroll database integration is authored but not run; migration `20261024210000_payroll` has not been applied.
 - Exact next step: hostel management, then confidential counseling and referrals, then remaining library/transport/analytics requirements. Do not use the unconfirmed configured DB for migrations or DB tests.
+- Payroll checkpoint commit: `ac680a99d92b929b2c33b587a43ec3c6bb260858` (local only).
 
 ---
 
