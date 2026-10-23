@@ -18,6 +18,7 @@ import {
   Library,
   MessageCircle,
   ClipboardList,
+  Banknote,
 } from 'lucide-react';
 
 interface NavItem {
@@ -142,6 +143,7 @@ export const Sidebar: React.FC = () => {
       icon: Bus,
       roles: ['ROLE_SUPER_ADMIN', 'ROLE_INSTITUTION_ADMIN', 'ROLE_TRANSPORT_COORDINATOR'],
     },
+    { name: 'Payroll', to: '/payroll', icon: Banknote, roles: ['ROLE_INSTITUTION_ADMIN', 'ROLE_FINANCE_HEAD'] },
     {
       name: 'Hostel',
       to: '/hostel',

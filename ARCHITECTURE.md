@@ -305,6 +305,10 @@ Current finance exclusions: refund workflow and payment-provider integration/rec
 
 `ExamInvigilator` persists institution-scoped staff assignments to an exam schedule. `GET /exams/invigilators/candidates` returns active users with a tenant teacher profile; `GET /exams/schedules/:id/invigilators` reads the active roster; `PUT /exams/schedules/:id/invigilators` replaces the roster while retaining deactivated assignment rows. The write requires `exam:create`, is audited, checks active staff membership in the tenant, blocks published sessions, and rejects overlapping assignments for the same person. The transaction uses PostgreSQL serializable isolation. Migration `20261024180000_exam_invigilators` is pending application and therefore has not been database-verified.
 
+### Payroll summaries
+
+`StaffCompensation` keeps effective-dated monthly salary versions for teacher profiles. `POST /payroll/compensations` records salary versions; `/payroll/runs` creates a single monthly snapshot with the staff and gross salary amounts effective at the month's first day. The snapshot is append-only by unique institution/period; deductions/tax are intentionally not calculated because policies are unspecified. Payroll routes require payroll permissions and independently restrict access to `ROLE_INSTITUTION_ADMIN` (principal) and `ROLE_FINANCE_HEAD`; auditor access is excluded. All writes pass through audit middleware. Migration `20261024210000_payroll` is pending database application and workflow verification.
+
 ---
 
 ## 6. Docker & Infrastructure Design

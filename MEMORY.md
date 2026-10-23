@@ -99,6 +99,12 @@ d:\lms2/
 - **Exact next action**: Implement Phase 7 payroll, hostel, and counseling from HR-004/AUX-003/COUN-001–003, then remaining library/transport/analytics requirements. Continue to avoid migrations or DB integration runs against unconfirmed `lms2`.
 - Phase 5 continuation commit: `0d7f38f0ce9b70de49a481c2038a37dab76b169a` (local only, no remote configured). No deployment or remote push occurred.
 
+### Phase 7 payroll continuation — 2026-10-24
+- Added effective-dated teacher salary history and immutable monthly gross payroll snapshots; salary snapshots include staff name and employee-code values. Payroll currently covers active `TeacherProfile` records, without unconfigured deductions/tax calculations.
+- Added a management/read API, role-specific permissions, a second service-level gate allowing only institution admin/principal and finance head, audited mutations, a salary setup screen, and monthly summary generation/history UI.
+- Verification: Prisma schema validation and generation, server/client builds passed; focused pure tests passed 16/16 across five files. Payroll database integration is authored but not run; migration `20261024210000_payroll` has not been applied.
+- Exact next step: hostel management, then confidential counseling and referrals, then remaining library/transport/analytics requirements. Do not use the unconfirmed configured DB for migrations or DB tests.
+
 ---
 
 ## 7. Commands Needed to Run & Test
