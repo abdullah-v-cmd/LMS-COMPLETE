@@ -6,7 +6,7 @@ import { validateRequest } from '../../middleware/validate';
 import { logAuditEvent } from '../../middleware/audit';
 import { PERMISSIONS } from '../../constants/permissions';
 import { HostelController } from './hostel.controller';
-import { allocationSchema, blockSchema, gatePassReviewSchema, gatePassSchema, idParamsSchema, messChargeSchema, roomSchema, visitorSchema } from './hostel.schemas';
+import { allocationSchema, blockSchema, gatePassReviewSchema, gatePassSchema, idParamsSchema, messChargeSchema, roomSchema, visitorSchema, incidentSchema } from './hostel.schemas';
 
 const router = Router();
 router.use(requireAuth, requireTenant);
@@ -24,6 +24,9 @@ router.post('/gate-passes/:id/return', requirePermission(PERMISSIONS.HOSTEL_MANA
 router.get('/visitors', requirePermission(PERMISSIONS.HOSTEL_READ), HostelController.visitors);
 router.post('/visitors', requirePermission(PERMISSIONS.HOSTEL_MANAGE), validateRequest({ body: visitorSchema }), logAuditEvent('HOSTEL_VISITOR_LOGGED', 'HostelVisitorLog'), HostelController.logVisitor);
 router.post('/visitors/:id/checkout', requirePermission(PERMISSIONS.HOSTEL_MANAGE), validateRequest({ params: idParamsSchema }), logAuditEvent('HOSTEL_VISITOR_CHECKED_OUT', 'HostelVisitorLog'), HostelController.closeVisitor);
+router.get('/incidents', requirePermission(PERMISSIONS.HOSTEL_READ), HostelController.incidents);
+router.post('/incidents', requirePermission(PERMISSIONS.HOSTEL_MANAGE), validateRequest({ body: incidentSchema }), logAuditEvent('HOSTEL_INCIDENT_RECORDED', 'HostelIncident'), HostelController.createIncident);
+router.post('/incidents/:id/resolve', requirePermission(PERMISSIONS.HOSTEL_MANAGE), validateRequest({ params: idParamsSchema }), logAuditEvent('HOSTEL_INCIDENT_RESOLVED', 'HostelIncident'), HostelController.resolveIncident);
 router.get('/mess-charges', requirePermission(PERMISSIONS.HOSTEL_READ), HostelController.messCharges);
 router.post('/mess-charges', requirePermission(PERMISSIONS.HOSTEL_MANAGE), validateRequest({ body: messChargeSchema }), logAuditEvent('HOSTEL_MESS_CHARGE_CREATED', 'HostelMessCharge'), HostelController.createMessCharge);
 router.post('/mess-charges/:id/pay', requirePermission(PERMISSIONS.HOSTEL_MANAGE), validateRequest({ params: idParamsSchema }), logAuditEvent('HOSTEL_MESS_CHARGE_PAID', 'HostelMessCharge'), HostelController.markMessChargePaid);

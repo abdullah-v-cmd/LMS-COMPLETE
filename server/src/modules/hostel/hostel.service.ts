@@ -83,9 +83,20 @@ export class HostelService {
     if (!student) throw { status: 404, message: 'Hostel resident not found in this institution' };
     return prisma.hostelMessCharge.create({ data: { ...data, institutionId, createdByUserId: userId, currencyCode: institution?.currency.slice(0, 3).toUpperCase() ?? 'USD', amount: new Prisma.Decimal(data.amount.toFixed(2)) } });
   }
-  static async markMessChargePaid(institutionId: string, id: string) {
+  static incidents(institutionId: string) { return prisma.hostelIncident.findMany({ where: { institutionId }, include: { student: { select: { admissionNumber: true, user: { select: { firstName: true, lastName: true } } } } }, orderBy: { occurredAt: 'desc' } }); }
+  static async createIncident(institutionId: string, userId: string, data: { studentId?: string; category: string; description: string; occurredAt: string }) {
+    if (data.studentId && !await prisma.studentProfile.findFirst({ where: { id: data.studentId, institutionId }, select: { id: true } })) throw { status: 404, message: 'Student not found in this institution' };
+    return prisma.hostelIncident.create({ data: { ...data, occurredAt: new Date(data.occurredAt), institutionId, recordedByUserId: userId } });
+  }
+  static async resolveIncident(institutionId: string, id: string) {
+    const result = await prisma.hostelIncident.updateMany({ where: { id, institutionId, status: 'OPEN' }, data: { status: 'RESOLVED', resolvedAt: new Date() } });
+    if (!result.count) throw { status: 409, message: 'Open incident not found' };
+    return prisma.hostelIncident.findFirstOrThrow({ where: { id, institutionId } });
+  }  static async markMessChargePaid(institutionId: string, id: string) {
     const updated = await prisma.hostelMessCharge.updateMany({ where: { id, institutionId, status: HostelChargeStatus.UNPAID }, data: { status: HostelChargeStatus.PAID, paidAt: new Date() } });
     if (!updated.count) throw { status: 409, message: 'Unpaid mess charge not found' };
     return prisma.hostelMessCharge.findFirstOrThrow({ where: { id, institutionId } });
   }
 }
+
+// Incident records are tenant-scoped; resolution is a one-way state transition.

@@ -311,7 +311,7 @@ Current finance exclusions: refund workflow and payment-provider integration/rec
 
 ### Hostel operations
 
-Hostel routes support institution-scoped blocks/rooms, bed assignments with capacity and bed-number collision checks, resident gate-pass request/review/departure/return, visitor entry/checkout logs, and monthly mess charge status. Student users only receive the separate own-gate-pass request/read permission; warden operations use hostel management permissions. Writes are audited. Migrations add a unique block name, unique room bed, gate-pass, visitor, and mess-charge persistence. Mess charge status is currently operational tracking and is not double-posted to finance; hostel residence check-in/out and incident management still need implementation. Migration `20261024220000_hostel_operations` is pending application and DB verification.
+Hostel routes support institution-scoped blocks/rooms, bed assignments with capacity and bed-number collision checks, resident gate-pass request/review/departure/return, visitor entry/checkout logs, and monthly mess charge status. Student users only receive the separate own-gate-pass request/read permission; warden operations use hostel management permissions. Writes are audited. Migrations add a unique block name, unique room bed, gate-pass, visitor, and mess-charge persistence. Mess charge status is currently operational tracking and is not double-posted to finance; hostel residence check-in/out residence check-in/out still needs implementation. Hostel incident records now support tenant-scoped warden create/list/resolve workflows with audit events. Migrations `20261024220000_hostel_operations` and `20261024240000_hostel_incidents` are pending application and DB verification.
 
 ### Confidential counseling
 

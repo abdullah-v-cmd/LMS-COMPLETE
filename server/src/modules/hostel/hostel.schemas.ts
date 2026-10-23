@@ -8,3 +8,5 @@ export const visitorSchema = z.object({ studentId: z.string().uuid().optional(),
 export const messChargeSchema = z.object({ studentId: z.string().uuid(), period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/), amount: z.number().positive().max(10000000) }).strict();
 export const idParamsSchema = z.object({ id: z.string().uuid() });
 export const gatePassReviewSchema = z.object({ status: z.enum(['APPROVED', 'REJECTED']) });
+
+export const incidentSchema = z.object({ studentId: z.string().uuid().optional(), category: z.enum(['SAFETY', 'PROPERTY', 'DISCIPLINE', 'HEALTH', 'OTHER']), description: z.string().trim().min(5).max(2000), occurredAt: z.string().datetime() }).strict();

@@ -181,6 +181,7 @@ model Institution {
   hostelGatePasses   HostelGatePass[]
   hostelVisitorLogs  HostelVisitorLog[]
   hostelMessCharges  HostelMessCharge[]
+  hostelIncidents    HostelIncident[]
   counselingCases    CounselingCase[]
   counselingReferrals CounselingReferral[]
   counselingAtRiskRules CounselingAtRiskRule[]
@@ -458,6 +459,7 @@ model StudentProfile {
   hostelGatePasses  HostelGatePass[]
   hostelVisitorLogs HostelVisitorLog[]
   hostelMessCharges HostelMessCharge[]
+  hostelIncidents   HostelIncident[]
   counselingCases   CounselingCase[]
   counselingReferrals CounselingReferral[]
 
@@ -1268,6 +1270,22 @@ model HostelMessCharge {
   @@map("hostel_mess_charges")
 }
 
+model HostelIncident {
+  id            String   @id @default(uuid())
+  institutionId String
+  studentId     String?
+  category      String
+  description   String
+  occurredAt    DateTime
+  status        String   @default("OPEN")
+  recordedByUserId String
+  resolvedAt    DateTime?
+  createdAt     DateTime @default(now())
+  institution Institution      @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  student     StudentProfile?  @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  @@index([institutionId, status, occurredAt])
+  @@map("hostel_incidents")
+}
 model CounselingCase {
   id            String   @id @default(uuid())
   institutionId String
