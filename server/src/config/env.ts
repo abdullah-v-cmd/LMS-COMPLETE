@@ -15,6 +15,7 @@ export const envSchema = z.object({
   JWT_ACCESS_SECRET: z.string().min(16, 'JWT_ACCESS_SECRET must be at least 16 chars'),
   JWT_REFRESH_SECRET: z.string().min(16, 'JWT_REFRESH_SECRET must be at least 16 chars'),
   REPORT_CARD_SIGNING_SECRET: z.string().min(16).optional(),
+  COUNSELING_ENCRYPTION_SECRET: z.string().min(16).optional(),
   JWT_ACCESS_EXPIRY: z.string().default('15m'),
   JWT_REFRESH_EXPIRY: z.string().default('7d'),
   CLIENT_URL: z.string().url().default('http://localhost:5173'),
@@ -38,6 +39,9 @@ export const envSchema = z.object({
   }
   if (!config.REPORT_CARD_SIGNING_SECRET || config.REPORT_CARD_SIGNING_SECRET.length < 32 || /your_|change.?me|example|default/i.test(config.REPORT_CARD_SIGNING_SECRET)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['REPORT_CARD_SIGNING_SECRET'], message: 'Production report card signing secret must be a unique random value of at least 32 characters' });
+  }
+  if (!config.COUNSELING_ENCRYPTION_SECRET || config.COUNSELING_ENCRYPTION_SECRET.length < 32 || /your_|change.?me|example|default/i.test(config.COUNSELING_ENCRYPTION_SECRET)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['COUNSELING_ENCRYPTION_SECRET'], message: 'Production counseling encryption secret must be a unique random value of at least 32 characters' });
   }
   if (!config.CLIENT_URL.startsWith('https://')) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['CLIENT_URL'], message: 'Production CLIENT_URL must use HTTPS' });

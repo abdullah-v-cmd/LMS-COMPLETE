@@ -154,7 +154,7 @@ export const Sidebar: React.FC = () => {
       name: 'Counseling',
       to: '/counseling',
       icon: HeartHandshake,
-      roles: ['ROLE_SUPER_ADMIN', 'ROLE_INSTITUTION_ADMIN', 'ROLE_COUNSELOR'],
+      roles: ['ROLE_COUNSELOR', 'ROLE_CLASS_TEACHER', 'ROLE_SUBJECT_TEACHER', 'ROLE_PARENT'],
     },
     {
       name: 'Audit Logs',

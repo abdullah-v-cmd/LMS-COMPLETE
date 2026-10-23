@@ -1,0 +1,27 @@
+import { Router } from 'express';
+import { requireAuth } from '../../middleware/auth';
+import { requireTenant } from '../../middleware/tenant';
+import { requirePermission } from '../../middleware/rbac';
+import { validateRequest } from '../../middleware/validate';
+import { logAuditEvent } from '../../middleware/audit';
+import { PERMISSIONS } from '../../constants/permissions';
+import { CounselingController } from './counseling.controller';
+import { atRiskRuleSchema, createCaseSchema, followUpSchema, idParamsSchema, noteSchema, referralSchema, reviewReferralSchema, supportPlanSchema } from './counseling.schemas';
+
+const router = Router();
+router.use(requireAuth, requireTenant);
+router.get('/referrals', requirePermission(PERMISSIONS.COUNSELING_REFER), CounselingController.referrals);
+router.get('/referral-students', requirePermission(PERMISSIONS.COUNSELING_REFER), CounselingController.referralCandidates);
+router.post('/referrals', requirePermission(PERMISSIONS.COUNSELING_REFER), validateRequest({ body: referralSchema }), logAuditEvent('COUNSELING_REFERRAL_SUBMITTED', 'CounselingReferral', { redactFields: ['reason'] }), CounselingController.submitReferral);
+router.post('/referrals/:id/review', requirePermission(PERMISSIONS.COUNSELING_MANAGE), validateRequest({ params: idParamsSchema, body: reviewReferralSchema }), logAuditEvent('COUNSELING_REFERRAL_REVIEWED', 'CounselingReferral'), CounselingController.reviewReferral);
+router.get('/cases', requirePermission(PERMISSIONS.COUNSELING_READ), CounselingController.cases);
+router.post('/cases', requirePermission(PERMISSIONS.COUNSELING_MANAGE), validateRequest({ body: createCaseSchema }), logAuditEvent('COUNSELING_CASE_CREATED', 'CounselingCase', { redactFields: ['caseTitle'] }), CounselingController.createCase);
+router.get('/cases/:id/notes', requirePermission(PERMISSIONS.COUNSELING_READ), validateRequest({ params: idParamsSchema }), CounselingController.notes);
+router.post('/cases/:id/notes', requirePermission(PERMISSIONS.COUNSELING_MANAGE), validateRequest({ params: idParamsSchema, body: noteSchema }), logAuditEvent('COUNSELING_NOTE_CREATED', 'CounselingNote', { redactFields: ['notes', 'actionPlan'] }), CounselingController.addNote);
+router.post('/support-plans', requirePermission(PERMISSIONS.COUNSELING_MANAGE), validateRequest({ body: supportPlanSchema }), logAuditEvent('COUNSELING_SUPPORT_PLAN_CREATED', 'CounselingSupportPlan', { redactFields: ['title', 'goal', 'actions'] }), CounselingController.createPlan);
+router.post('/follow-ups', requirePermission(PERMISSIONS.COUNSELING_MANAGE), validateRequest({ body: followUpSchema }), logAuditEvent('COUNSELING_FOLLOW_UP_SCHEDULED', 'CounselingFollowUp', { redactFields: ['notes'] }), CounselingController.addFollowUp);
+router.post('/follow-ups/:id/complete', requirePermission(PERMISSIONS.COUNSELING_MANAGE), validateRequest({ params: idParamsSchema, body: noteSchema.pick({ notes: true }).partial() }), logAuditEvent('COUNSELING_FOLLOW_UP_COMPLETED', 'CounselingFollowUp', { redactFields: ['notes'] }), CounselingController.completeFollowUp);
+router.get('/at-risk/rules', requirePermission(PERMISSIONS.COUNSELING_READ), CounselingController.rules);
+router.put('/at-risk/rules', requirePermission(PERMISSIONS.COUNSELING_MANAGE), validateRequest({ body: atRiskRuleSchema }), logAuditEvent('COUNSELING_AT_RISK_RULE_SAVED', 'CounselingAtRiskRule'), CounselingController.saveRule);
+router.get('/at-risk/students', requirePermission(PERMISSIONS.COUNSELING_READ), CounselingController.atRisk);
+export default router;

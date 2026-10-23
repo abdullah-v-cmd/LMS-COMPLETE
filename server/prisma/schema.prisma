@@ -125,6 +125,12 @@ enum HostelChargeStatus {
   WAIVED
 }
 
+enum CounselingReferralStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
 // -------------------------------------------------------------
 // 1. INSTITUTIONS & CAMPUSES (MULTI-TENANCY)
 // -------------------------------------------------------------
@@ -176,6 +182,9 @@ model Institution {
   hostelVisitorLogs  HostelVisitorLog[]
   hostelMessCharges  HostelMessCharge[]
   counselingCases    CounselingCase[]
+  counselingReferrals CounselingReferral[]
+  counselingAtRiskRules CounselingAtRiskRule[]
+  counselingSupportPlans CounselingSupportPlan[]
   reportCards        StudentReportCard[]
 
   @@map("institutions")
@@ -450,6 +459,7 @@ model StudentProfile {
   hostelVisitorLogs HostelVisitorLog[]
   hostelMessCharges HostelMessCharge[]
   counselingCases   CounselingCase[]
+  counselingReferrals CounselingReferral[]
 
   @@unique([institutionId, admissionNumber])
   @@index([institutionId, sectionId])
@@ -1263,7 +1273,8 @@ model CounselingCase {
   institutionId String
   studentId     String
   counselorId   String // User ID of counselor
-  caseTitle     String
+  caseTitle     String?
+  encryptedCaseTitle String?
   riskLevel     String   @default("LOW") // LOW, MEDIUM, HIGH, CRITICAL
   status        String   @default("OPEN") // OPEN, IN_PROGRESS, CLOSED
   createdAt     DateTime @default(now())
@@ -1272,6 +1283,7 @@ model CounselingCase {
   institution Institution      @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   student     StudentProfile   @relation(fields: [studentId], references: [id], onDelete: Cascade)
   notes       CounselingNote[]
+  supportPlans CounselingSupportPlan[]
 
   @@map("counseling_cases")
 }
@@ -1283,11 +1295,88 @@ model CounselingNote {
   sessionDate    DateTime @default(now())
   encryptedNotes String // Confidential session observations
   actionPlan     String?
+  encryptedActionPlan String?
   createdAt      DateTime @default(now())
 
   counselingCase CounselingCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
 
   @@map("counseling_notes")
+}
+
+model CounselingSupportPlan {
+  id              String   @id @default(uuid())
+  institutionId   String
+  caseId          String
+  title           String?
+  goal            String?
+  actions         String?
+  encryptedTitle  String?
+  encryptedGoal   String?
+  encryptedActions String?
+  startsAt        DateTime @default(now())
+  endsAt          DateTime?
+  status          String   @default("ACTIVE")
+  createdByUserId String
+  createdAt       DateTime @default(now())
+
+  institution    Institution      @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  counselingCase CounselingCase  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  followUps      CounselingFollowUp[]
+
+  @@index([institutionId, status])
+  @@map("counseling_support_plans")
+}
+
+model CounselingFollowUp {
+  id              String   @id @default(uuid())
+  supportPlanId   String
+  dueAt           DateTime
+  completedAt     DateTime?
+  encryptedNotes  String?
+  createdByUserId String
+  createdAt       DateTime @default(now())
+
+  supportPlan CounselingSupportPlan @relation(fields: [supportPlanId], references: [id], onDelete: Cascade)
+
+  @@index([supportPlanId, dueAt])
+  @@map("counseling_follow_ups")
+}
+
+model CounselingReferral {
+  id              String                  @id @default(uuid())
+  institutionId   String
+  studentId       String
+  referredByUserId String
+  reason          String?
+  encryptedReason String?
+  status          CounselingReferralStatus @default(PENDING)
+  reviewedByUserId String?
+  reviewedAt      DateTime?
+  createdAt       DateTime                @default(now())
+
+  institution Institution    @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  student     StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([institutionId, status, createdAt])
+  @@map("counseling_referrals")
+}
+
+model CounselingAtRiskRule {
+  id                  String   @id @default(uuid())
+  institutionId       String
+  name                String
+  minimumAbsences     Int
+  lookbackDays        Int
+  minimumGradePercent Float?
+  isActive            Boolean  @default(true)
+  updatedByUserId     String
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  institution Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+
+  @@unique([institutionId, name])
+  @@map("counseling_at_risk_rules")
 }
 
 // -------------------------------------------------------------

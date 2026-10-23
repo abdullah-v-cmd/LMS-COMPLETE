@@ -313,6 +313,10 @@ Current finance exclusions: refund workflow and payment-provider integration/rec
 
 Hostel routes support institution-scoped blocks/rooms, bed assignments with capacity and bed-number collision checks, resident gate-pass request/review/departure/return, visitor entry/checkout logs, and monthly mess charge status. Student users only receive the separate own-gate-pass request/read permission; warden operations use hostel management permissions. Writes are audited. Migrations add a unique block name, unique room bed, gate-pass, visitor, and mess-charge persistence. Mess charge status is currently operational tracking and is not double-posted to finance; hostel residence check-in/out and incident management still need implementation. Migration `20261024220000_hostel_operations` is pending application and DB verification.
 
+### Confidential counseling
+
+Counselor-only case APIs are scoped to the creating counselor and tenant. Case titles, session notes, action plans, support-plan text, follow-up notes, and referral reasons are encrypted with AES-256-GCM before persistence; audit snapshots redact sensitive request fields. Production requires `COUNSELING_ENCRYPTION_SECRET`; retain the key to read previously encrypted records. Teachers may refer students only within assigned sections, and parents only linked children; referral list views are limited to the referrer or counselor. Counselors configure lookback/absence and published-grade thresholds; at-risk output returns minimal student data and matching reasons. Migration `20261024230000_confidential_counseling` is pending application and DB workflow verification.
+
 ---
 
 ## 6. Docker & Infrastructure Design

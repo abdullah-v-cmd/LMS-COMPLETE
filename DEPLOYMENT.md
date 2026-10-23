@@ -12,6 +12,7 @@ Set the following through the hosting platform's secret manager, never in source
 - `DATABASE_URL`: PostgreSQL connection URL with `sslmode=require` or stronger, to a dedicated production database
 - `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET`: distinct, independently generated random secrets, at least 32 characters each
 - `REPORT_CARD_SIGNING_SECRET`: independent random secret, at least 32 characters; keep it stable across releases or previously issued report-card verification signatures will no longer validate
+- `COUNSELING_ENCRYPTION_SECRET`: independent random secret, at least 32 characters; retain protected backups and rotation procedures because changing it makes existing counseling notes unreadable
 - `CLIENT_URL`: exact HTTPS origin for the deployed client
 - `PORT`, `API_PREFIX`, `UPLOAD_DIR`, `MAX_FILE_SIZE_MB`, `LOG_LEVEL`
 

@@ -15,6 +15,7 @@ import { LibraryPage } from './pages/LibraryPage';
 import { TransportPage } from './pages/TransportPage';
 import { PayrollPage } from './pages/PayrollPage';
 import { HostelPage } from './pages/HostelPage';
+import { CounselingPage } from './pages/CounselingPage';
 
 export const App: React.FC = () => {
   return (
@@ -91,14 +92,7 @@ export const App: React.FC = () => {
 
               <Route
                 path="/counseling"
-                element={
-                  <div className="bg-white p-6 rounded-2xl border border-slate-200">
-                    <h2 className="text-xl font-bold text-slate-900 mb-2">Counseling & Student Welfare</h2>
-                    <p className="text-sm text-slate-600">
-                      Confidential case files, mental health interventions, and at-risk academic indicators.
-                    </p>
-                  </div>
-                }
+                element={<CounselingPage />}
               />
 
               <Route

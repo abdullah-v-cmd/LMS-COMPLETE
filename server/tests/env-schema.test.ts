@@ -8,6 +8,7 @@ const baseline = {
   JWT_ACCESS_SECRET: 'access-secret-random-value-0123456789abcdef',
   JWT_REFRESH_SECRET: 'refresh-secret-random-value-0123456789abcdef',
   REPORT_CARD_SIGNING_SECRET: 'report-card-signing-secret-random-0123456789abcdef',
+  COUNSELING_ENCRYPTION_SECRET: 'counseling-encryption-secret-random-0123456789abcdef',
   CLIENT_URL: 'https://school.example.test',
 };
 
