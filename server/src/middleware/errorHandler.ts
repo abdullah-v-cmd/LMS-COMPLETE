@@ -22,7 +22,7 @@ export const errorHandler = (
       400,
       'VALIDATION_FAILED',
       'The requested payload failed validation.',
-      err.errors.map((e) => ({
+      err.issues.map((e) => ({
         field: e.path.join('.'),
         message: e.message,
       }))
