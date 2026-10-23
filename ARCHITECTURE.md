@@ -299,6 +299,10 @@ Library fine policy storage is introduced by `20261024170000_library_fines`. No 
 
 Current finance exclusions: refund workflow and payment-provider integration/reconciliation. Serializable database transactions are used for invoice generation, payment posting, and waiver approval; concurrency behavior still needs PostgreSQL integration verification.
 
+### Exam invigilation assignments
+
+`ExamInvigilator` persists institution-scoped staff assignments to an exam schedule. `GET /exams/invigilators/candidates` returns active users with a tenant teacher profile; `GET /exams/schedules/:id/invigilators` reads the active roster; `PUT /exams/schedules/:id/invigilators` replaces the roster while retaining deactivated assignment rows. The write requires `exam:create`, is audited, checks active staff membership in the tenant, blocks published sessions, and rejects overlapping assignments for the same person. The transaction uses PostgreSQL serializable isolation. Migration `20261024180000_exam_invigilators` is pending application and therefore has not been database-verified.
+
 ---
 
 ## 6. Docker & Infrastructure Design

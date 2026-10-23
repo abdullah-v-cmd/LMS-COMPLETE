@@ -30,6 +30,19 @@ describe('Phase 5: examination workflow integration', () => {
     const schedule = await request(app).post('/api/v1/exams/schedules').set('Authorization', `Bearer ${controllerToken}`).send({ examSessionId: session.body.data.id, subjectId: subject.id, examDate: startDate, startTime: '09:00', endTime: '11:00', maxMarks: 100, passMarks: 40, roomNumber: 'TEST-1' });
     expect(schedule.status).toBe(201);
 
+    const invigilator = await prisma.teacherProfile.findFirstOrThrow({ where: { institutionId: controllerUser.institutionId!, user: { email: 'teacher.math@alpha.edu' } }, select: { userId: true } });
+    const assignment = await request(app).put(`/api/v1/exams/schedules/${schedule.body.data.id}/invigilators`).set('Authorization', `Bearer ${controllerToken}`).send({ userIds: [invigilator.userId] });
+    expect(assignment.status).toBe(200);
+    expect(assignment.body.data.map((item: { userId: string }) => item.userId)).toContain(invigilator.userId);
+    const fetchedAssignments = await request(app).get(`/api/v1/exams/schedules/${schedule.body.data.id}/invigilators`).set('Authorization', `Bearer ${controllerToken}`);
+    expect(fetchedAssignments.status).toBe(200);
+    expect(fetchedAssignments.body.data).toHaveLength(1);
+    const otherSubject = await prisma.subject.findFirstOrThrow({ where: { institutionId: controllerUser.institutionId!, id: { not: subject.id } }, select: { id: true } });
+    const overlappingSchedule = await request(app).post('/api/v1/exams/schedules').set('Authorization', `Bearer ${controllerToken}`).send({ examSessionId: session.body.data.id, subjectId: otherSubject.id, examDate: startDate, startTime: '10:00', endTime: '12:00', maxMarks: 100, passMarks: 40, roomNumber: 'TEST-2' });
+    expect(overlappingSchedule.status).toBe(201);
+    const conflict = await request(app).put(`/api/v1/exams/schedules/${overlappingSchedule.body.data.id}/invigilators`).set('Authorization', `Bearer ${controllerToken}`).send({ userIds: [invigilator.userId] });
+    expect(conflict.status).toBe(409);
+
     const roster = await request(app).get(`/api/v1/exams/schedules/${schedule.body.data.id}/roster`).set('Authorization', `Bearer ${teacherToken}`);
     expect(roster.status).toBe(200);
     expect(roster.body.data.students.some((row: { id: string }) => row.id === student.id)).toBe(true);

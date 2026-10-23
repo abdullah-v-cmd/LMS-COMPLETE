@@ -141,6 +141,7 @@ model Institution {
   attendanceRecords  AttendanceRecord[]
   subjectAttendanceRecords SubjectAttendanceRecord[]
   examSessions       ExamSession[]
+  examInvigilators   ExamInvigilator[]
   feeStructures      FeeStructure[]
   studentFeeInvoices StudentFeeInvoice[]
   feePayments        FeePayment[]
@@ -239,6 +240,7 @@ model User {
   notifications Notification[]
   sentMessages  DirectMessage[] @relation("SentMessages")
   recvMessages  DirectMessage[] @relation("ReceivedMessages")
+  examInvigilations ExamInvigilator[]
 
   studentProfile StudentProfile?
   parentProfile  ParentProfile?
@@ -737,9 +739,28 @@ model ExamSchedule {
   examSession ExamSession @relation(fields: [examSessionId], references: [id], onDelete: Cascade)
   subject     Subject     @relation(fields: [subjectId], references: [id], onDelete: Cascade)
   marks       ExamMark[]
+  invigilators ExamInvigilator[]
 
   @@unique([examSessionId, subjectId])
   @@map("exam_schedules")
+}
+
+model ExamInvigilator {
+  id               String   @id @default(uuid())
+  institutionId    String
+  examScheduleId   String
+  userId           String
+  assignedByUserId String
+  assignedAt       DateTime @default(now())
+  isActive         Boolean  @default(true)
+
+  institution Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  examSchedule ExamSchedule @relation(fields: [examScheduleId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([examScheduleId, userId])
+  @@index([institutionId, userId, isActive])
+  @@map("exam_invigilators")
 }
 
 model ExamMark {

@@ -4,6 +4,7 @@ import {
   createExamScheduleSchema,
   enterMarksSchema,
   requestGradeChangeSchema,
+  assignInvigilatorsSchema,
 } from '../src/modules/exams/exams.schemas';
 
 describe('Examination request validation', () => {
@@ -46,5 +47,11 @@ describe('Examination request validation', () => {
       proposedMarks: 40,
       reason: '  no  ',
     }).success).toBe(false);
+  });
+
+  it('rejects duplicate invigilators in a schedule assignment', () => {
+    const id = 'a0184c98-7f09-4b16-a22c-95b8dbf2a010';
+    expect(assignInvigilatorsSchema.safeParse({ userIds: [id, id] }).success).toBe(false);
+    expect(assignInvigilatorsSchema.safeParse({ userIds: [id] }).success).toBe(true);
   });
 });

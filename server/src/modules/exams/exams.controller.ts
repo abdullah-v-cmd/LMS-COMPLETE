@@ -4,6 +4,18 @@ import { sendSuccess } from '../../utils/response';
 import { AuthenticatedRequest } from '../../types';
 
 export class ExamsController {
+  static async getInvigilatorCandidates(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try { return sendSuccess(res, await ExamsService.getInvigilatorCandidates(req.institutionId!)); } catch (error) { next(error); }
+  }
+
+  static async getScheduleInvigilators(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try { return sendSuccess(res, await ExamsService.getScheduleInvigilators(req.institutionId!, req.params.id)); } catch (error) { next(error); }
+  }
+
+  static async assignInvigilators(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try { return sendSuccess(res, await ExamsService.assignInvigilators(req.institutionId!, req.params.id, req.user!.id, req.body.userIds)); } catch (error) { next(error); }
+  }
+
   static async getExamSessions(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const sessions = await ExamsService.getExamSessions(req.institutionId!);

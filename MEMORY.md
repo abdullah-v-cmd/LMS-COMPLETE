@@ -90,6 +90,12 @@ d:\lms2/
 - **Parallel outstanding task**: TASK-P5-01 remains in progress (exam workflows/UI/integration verification); TASK-P6-01 remains in progress (finance DB transaction verification); TASK-P7-01 through TASK-P9-01 remain outstanding.
 - **Exact Next Action**: Continue Phase 5 invigilation/grading-scale/report-card requirements and Phase 7–9 work. When an isolated test database is confirmed, apply pending migrations and run Phases 4–6 workflows. Do not run DB suites against configured `lms2` without confirmation it is isolated.
 
+### Continuation checkpoint — 2026-10-24
+- Implemented Phase 5 invigilator roster persistence, active teacher-profile candidate listing, schedule roster retrieval and replacement endpoints, audit event, tenant checks, published-session guard, overlapping schedule conflict detection, and a serializable transaction. Added roster UI and extended the DB workflow test with persistence/readback and conflict assertions.
+- Added migration `server/prisma/migrations/20261024180000_exam_invigilators/migration.sql`.
+- Evidence: Prisma schema validation and generation passed; server TypeScript build passed; client production build passed; exam schema tests passed 5/5; `git diff --check` passed. DB workflow test and migration were not run because configured `lms2` is not confirmed as isolated and local Postgres is unreachable.
+- Still outstanding in Phase 5: configurable grade bands/GPA schema and official print-ready/security-verifiable report cards. Phase 7 payroll, hostel, counseling and remaining requirements remain. No deployment or remote push occurred.
+
 ---
 
 ## 7. Commands Needed to Run & Test

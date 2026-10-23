@@ -14,6 +14,65 @@ export class ExamsService {
     });
   }
 
+  static async getInvigilatorCandidates(institutionId: string) {
+    return prisma.teacherProfile.findMany({
+      where: { institutionId, user: { isActive: true } },
+      select: { id: true, employeeCode: true, user: { select: { id: true, firstName: true, lastName: true, role: true } } },
+      orderBy: [{ user: { lastName: 'asc' } }, { user: { firstName: 'asc' } }],
+    });
+  }
+
+  static async getScheduleInvigilators(institutionId: string, scheduleId: string) {
+    const schedule = await prisma.examSchedule.findFirst({ where: { id: scheduleId, examSession: { institutionId } }, select: { id: true } });
+    if (!schedule) throw { status: 404, message: 'Exam schedule not found' };
+    return prisma.examInvigilator.findMany({
+      where: { institutionId, examScheduleId: scheduleId, isActive: true },
+      include: { user: { select: { id: true, firstName: true, lastName: true, role: true, teacherProfile: { select: { employeeCode: true } } } } },
+      orderBy: [{ user: { lastName: 'asc' } }, { user: { firstName: 'asc' } }],
+    });
+  }
+
+  static async assignInvigilators(institutionId: string, scheduleId: string, assignedByUserId: string, userIds: string[]) {
+    const schedule = await prisma.examSchedule.findFirst({
+      where: { id: scheduleId, examSession: { institutionId } },
+      include: { examSession: { select: { status: true } } },
+    });
+    if (!schedule) throw { status: 404, message: 'Exam schedule not found' };
+    if (schedule.examSession.status === ExamSessionStatus.PUBLISHED) throw { status: 409, message: 'Published exam sessions cannot be changed' };
+
+    return prisma.$transaction(async (tx) => {
+      const candidates = await tx.teacherProfile.findMany({
+        where: { institutionId, userId: { in: userIds }, user: { isActive: true } },
+        select: { userId: true },
+      });
+      if (candidates.length !== userIds.length) throw { status: 400, message: 'Every invigilator must be an active staff member in this institution' };
+
+      if (userIds.length) {
+        const existing = await tx.examInvigilator.findMany({
+          where: { institutionId, userId: { in: userIds }, isActive: true, examScheduleId: { not: scheduleId } },
+          include: { examSchedule: { select: { id: true, examDate: true, startTime: true, endTime: true, roomNumber: true, examSession: { select: { name: true } } } } },
+        });
+        const sameDay = existing.filter((assignment) => assignment.examSchedule.examDate.toISOString().slice(0, 10) === schedule.examDate.toISOString().slice(0, 10)
+          && assignment.examSchedule.startTime < schedule.endTime && assignment.examSchedule.endTime > schedule.startTime);
+        if (sameDay.length) throw { status: 409, message: 'An invigilator is already assigned to an overlapping exam schedule', conflicts: sameDay.map((item) => ({ userId: item.userId, examScheduleId: item.examScheduleId, session: item.examSchedule.examSession.name, roomNumber: item.examSchedule.roomNumber })) };
+      }
+
+      await tx.examInvigilator.updateMany({ where: { institutionId, examScheduleId: scheduleId, isActive: true, userId: { notIn: userIds } }, data: { isActive: false } });
+      for (const userId of userIds) {
+        await tx.examInvigilator.upsert({
+          where: { examScheduleId_userId: { examScheduleId: scheduleId, userId } },
+          update: { institutionId, assignedByUserId, assignedAt: new Date(), isActive: true },
+          create: { institutionId, examScheduleId: scheduleId, userId, assignedByUserId },
+        });
+      }
+      return tx.examInvigilator.findMany({
+        where: { institutionId, examScheduleId: scheduleId, isActive: true },
+        include: { user: { select: { id: true, firstName: true, lastName: true, role: true, teacherProfile: { select: { employeeCode: true } } } } },
+        orderBy: [{ user: { lastName: 'asc' } }, { user: { firstName: 'asc' } }],
+      });
+    }, { isolationLevel: 'Serializable' });
+  }
+
   static async getMarksRoster(institutionId: string, user: AuthenticatedUser, scheduleId: string) {
     const schedule = await prisma.examSchedule.findFirst({ where: { id: scheduleId, examSession: { institutionId } }, select: { id: true, subjectId: true, maxMarks: true, examSession: { select: { status: true, name: true } } } });
     if (!schedule) throw { status: 404, message: 'Exam schedule not found' };

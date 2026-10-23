@@ -52,4 +52,9 @@ export const publishResultsSchema = z.object({
 });
 
 export const reviewGradeChangeParamsSchema = z.object({ id: z.string().uuid() });
+export const assignInvigilatorsSchema = z.object({
+  userIds: z.array(z.string().uuid()).max(20, 'A schedule cannot have more than 20 invigilators'),
+}).refine((data) => new Set(data.userIds).size === data.userIds.length, {
+  path: ['userIds'], message: 'An invigilator may only be assigned once per schedule',
+});
 export const reportCardsQuerySchema = z.object({ studentId: z.string().uuid().optional() });
