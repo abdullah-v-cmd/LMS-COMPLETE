@@ -285,6 +285,16 @@ Refund persistence is introduced by migration `20261024150000_finance_refunds`. 
 | `GET /library/fine-policy` / `PUT /library/fine-policy` | read / manage | Reads or audits an institution daily fine and currency setting |
 
 Library fine policy storage is introduced by `20261024170000_library_fines`. No configured rate means no fine accrues; lost items require a separate recovery workflow and cannot be checked in through the ordinary return route.
+
+### Implemented Transport Routes
+
+| Route | Permission | Behavior |
+|---|---|---|
+| `GET /transport/routes` | `transport:read` | Tenant routes, fleet and assigned seat counts |
+| `GET /transport/allocations` | `transport:read` | Tenant student assignments |
+| `POST /transport/routes` | `transport:manage` | Creates route and monthly fee |
+| `POST /transport/vehicles` | `transport:manage` | Adds vehicle/driver to a tenant route |
+| `POST /transport/allocations` | `transport:manage` | Assigns/reassigns enrolled students, enforcing available fleet seat capacity transactionally |
 | `GET /finance/ledger` | `ledger:read` | Tenant financial ledger, most recent 500 entries |
 
 Current finance exclusions: refund workflow and payment-provider integration/reconciliation. Serializable database transactions are used for invoice generation, payment posting, and waiver approval; concurrency behavior still needs PostgreSQL integration verification.
