@@ -21,6 +21,8 @@ const router = Router();
 router.use(requireAuth, requireTenant);
 
 router.get('/sessions', requirePermission(PERMISSIONS.EXAM_READ), ExamsController.getExamSessions);
+router.get('/schedules/:id/roster', requirePermission(PERMISSIONS.EXAM_MARKS_ENTRY), validateRequest({ params: reviewGradeChangeParamsSchema }), ExamsController.getMarksRoster);
+router.get('/grade-changes', requirePermission(PERMISSIONS.GRADE_APPROVE), ExamsController.getPendingGradeChanges);
 router.post('/sessions', requirePermission(PERMISSIONS.EXAM_CREATE), validateRequest({ body: createExamSessionSchema }), logAuditEvent('EXAM_SESSION_CREATED', 'ExamSession'), ExamsController.createExamSession);
 router.post('/schedules', requirePermission(PERMISSIONS.EXAM_CREATE), validateRequest({ body: createExamScheduleSchema }), logAuditEvent('EXAM_SCHEDULE_CREATED', 'ExamSchedule'), ExamsController.createExamSchedule);
 router.post('/marks', requirePermission(PERMISSIONS.EXAM_MARKS_ENTRY), validateRequest({ body: enterMarksSchema }), logAuditEvent('EXAM_MARKS_ENTERED', 'ExamMark'), ExamsController.enterMarks);

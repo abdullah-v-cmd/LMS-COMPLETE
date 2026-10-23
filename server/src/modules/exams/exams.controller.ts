@@ -13,6 +13,14 @@ export class ExamsController {
     }
   }
 
+  static async getMarksRoster(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try { return sendSuccess(res, await ExamsService.getMarksRoster(req.institutionId!, req.user!, req.params.id)); } catch (error) { next(error); }
+  }
+
+  static async getPendingGradeChanges(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try { return sendSuccess(res, await ExamsService.getPendingGradeChanges(req.institutionId!)); } catch (error) { next(error); }
+  }
+
   static async createExamSession(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const session = await ExamsService.createExamSession(req.institutionId!, req.body);

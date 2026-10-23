@@ -7,10 +7,41 @@ export class ExamsService {
     return prisma.examSession.findMany({
       where: { institutionId },
       include: {
-        academicTerm: true,
+        academicTerm: { include: { academicYear: { select: { id: true, name: true } } } },
         schedules: { include: { subject: true } },
       },
       orderBy: { startDate: 'desc' },
+    });
+  }
+
+  static async getMarksRoster(institutionId: string, user: AuthenticatedUser, scheduleId: string) {
+    const schedule = await prisma.examSchedule.findFirst({ where: { id: scheduleId, examSession: { institutionId } }, select: { id: true, subjectId: true, maxMarks: true, examSession: { select: { status: true, name: true } } } });
+    if (!schedule) throw { status: 404, message: 'Exam schedule not found' };
+    const teacherRoles: UserRole[] = [UserRole.ROLE_SUBJECT_TEACHER, UserRole.ROLE_TEACHING_ASSISTANT];
+    const teacherRole = teacherRoles.includes(user.role);
+    const teacher = teacherRole ? await prisma.teacherProfile.findFirst({ where: { userId: user.id, institutionId }, select: { id: true } }) : null;
+    if (teacherRole && !teacher) throw { status: 403, message: 'Teacher profile is not assigned to this institution' };
+    const assignments = await prisma.teacherAssignment.findMany({ where: { subjectId: schedule.subjectId, ...(teacher ? { teacherId: teacher.id } : {}), section: { classGrade: { institutionId } } }, select: { sectionId: true } });
+    const sectionIds = [...new Set(assignments.map((item) => item.sectionId))];
+    if (!sectionIds.length) return { schedule, students: [] };
+    const students = await prisma.studentProfile.findMany({ where: { institutionId, sectionId: { in: sectionIds }, status: 'ENROLLED' }, select: { id: true, admissionNumber: true, rollNumber: true, sectionId: true, user: { select: { firstName: true, lastName: true } } }, orderBy: [{ sectionId: 'asc' }, { rollNumber: 'asc' }] });
+    const marks = await prisma.examMark.findMany({ where: { examScheduleId: schedule.id, studentId: { in: students.map((student) => student.id) } }, select: { id: true, studentId: true, marksObtained: true, isAbsent: true, remarks: true } });
+    const byStudent = new Map(marks.map((mark) => [mark.studentId, mark]));
+    return { schedule, students: students.map((student) => ({ ...student, mark: byStudent.get(student.id) ?? null })) };
+  }
+
+  static async getPendingGradeChanges(institutionId: string) {
+    return prisma.gradeChangeRequest.findMany({
+      where: { status: CorrectionStatus.PENDING, examMark: { examSchedule: { examSession: { institutionId } } } },
+      include: {
+        examMark: {
+          include: {
+            student: { select: { admissionNumber: true, rollNumber: true, user: { select: { firstName: true, lastName: true } } } },
+            examSchedule: { include: { subject: true, examSession: { select: { name: true } } } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
     });
   }
 

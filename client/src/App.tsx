@@ -9,6 +9,7 @@ import { InstitutionsPage } from './pages/InstitutionsPage';
 import { AttendancePage } from './pages/AttendancePage';
 import { CommunicationPage } from './pages/CommunicationPage';
 import { LeavePage } from './pages/LeavePage';
+import { ExamsPage } from './pages/ExamsPage';
 
 export const App: React.FC = () => {
   return (
@@ -69,17 +70,7 @@ export const App: React.FC = () => {
               <Route path="/communication" element={<CommunicationPage />} />
               <Route path="/leave" element={<LeavePage />} />
 
-              <Route
-                path="/exams"
-                element={
-                  <div className="bg-white p-6 rounded-2xl border border-slate-200">
-                    <h2 className="text-xl font-bold text-slate-900 mb-2">Examinations & Gradebook</h2>
-                    <p className="text-sm text-slate-600">
-                      Marks entry, Maker-Checker grade change requests, GPA calculation, and published report cards.
-                    </p>
-                  </div>
-                }
-              />
+              <Route path="/exams" element={<ExamsPage />} />
 
               <Route
                 path="/finance"

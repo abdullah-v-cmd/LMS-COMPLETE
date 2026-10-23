@@ -241,6 +241,8 @@ All examination routes are mounted under `/api/v1/exams` and require authenticat
 | Method and path | Permission | Behavior |
 | --- | --- | --- |
 | `GET /exams/sessions` | `exam:read` | Lists sessions in the request institution |
+| `GET /exams/schedules/:id/roster` | `exam:marks:entry`; assigned subject/section for teachers, institution scope for exam controllers | Returns the active eligible roster and existing marks for one schedule |
+| `GET /exams/grade-changes` | `grade:approve` | Lists pending grade correction requests in the request institution |
 | `POST /exams/sessions` | `exam:create` | Creates a session only for a term in the tenant |
 | `POST /exams/schedules` | `exam:create` | Adds a subject schedule to a tenant session, within session dates |
 | `POST /exams/marks` | `exam:marks:entry` | Validates tenant roster, teacher subject/section assignment, bounds, and one-time mark entry |
