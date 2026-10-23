@@ -73,6 +73,7 @@ export const PERMISSIONS = {
   TRANSPORT_READ: 'transport:read',
   HOSTEL_MANAGE: 'hostel:manage',
   HOSTEL_READ: 'hostel:read',
+  HOSTEL_REQUEST: 'hostel:request',
   COUNSELING_MANAGE: 'counseling:manage',
   COUNSELING_READ: 'counseling:read',
 
@@ -267,6 +268,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     PERMISSIONS.EXAM_READ,
     PERMISSIONS.FEE_READ,
     PERMISSIONS.LIBRARY_READ,
+    PERMISSIONS.HOSTEL_REQUEST,
     PERMISSIONS.COMMUNICATION_MESSAGE,
   ],
 

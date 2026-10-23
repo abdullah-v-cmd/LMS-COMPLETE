@@ -148,7 +148,7 @@ export const Sidebar: React.FC = () => {
       name: 'Hostel',
       to: '/hostel',
       icon: Building,
-      roles: ['ROLE_SUPER_ADMIN', 'ROLE_INSTITUTION_ADMIN', 'ROLE_HOSTEL_WARDEN'],
+      roles: ['ROLE_SUPER_ADMIN', 'ROLE_INSTITUTION_ADMIN', 'ROLE_HOSTEL_WARDEN', 'ROLE_STUDENT'],
     },
     {
       name: 'Counseling',

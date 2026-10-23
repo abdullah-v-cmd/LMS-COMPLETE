@@ -309,6 +309,10 @@ Current finance exclusions: refund workflow and payment-provider integration/rec
 
 `StaffCompensation` keeps effective-dated monthly salary versions for teacher profiles. `POST /payroll/compensations` records salary versions; `/payroll/runs` creates a single monthly snapshot with the staff and gross salary amounts effective at the month's first day. The snapshot is append-only by unique institution/period; deductions/tax are intentionally not calculated because policies are unspecified. Payroll routes require payroll permissions and independently restrict access to `ROLE_INSTITUTION_ADMIN` (principal) and `ROLE_FINANCE_HEAD`; auditor access is excluded. All writes pass through audit middleware. Migration `20261024210000_payroll` is pending database application and workflow verification.
 
+### Hostel operations
+
+Hostel routes support institution-scoped blocks/rooms, bed assignments with capacity and bed-number collision checks, resident gate-pass request/review/departure/return, visitor entry/checkout logs, and monthly mess charge status. Student users only receive the separate own-gate-pass request/read permission; warden operations use hostel management permissions. Writes are audited. Migrations add a unique block name, unique room bed, gate-pass, visitor, and mess-charge persistence. Mess charge status is currently operational tracking and is not double-posted to finance; hostel residence check-in/out and incident management still need implementation. Migration `20261024220000_hostel_operations` is pending application and DB verification.
+
 ---
 
 ## 6. Docker & Infrastructure Design

@@ -14,6 +14,7 @@ import { FinancePage } from './pages/FinancePage';
 import { LibraryPage } from './pages/LibraryPage';
 import { TransportPage } from './pages/TransportPage';
 import { PayrollPage } from './pages/PayrollPage';
+import { HostelPage } from './pages/HostelPage';
 
 export const App: React.FC = () => {
   return (
@@ -85,14 +86,7 @@ export const App: React.FC = () => {
 
               <Route
                 path="/hostel"
-                element={
-                  <div className="bg-white p-6 rounded-2xl border border-slate-200">
-                    <h2 className="text-xl font-bold text-slate-900 mb-2">Hostel & Housing</h2>
-                    <p className="text-sm text-slate-600">
-                      Building blocks, room capacity, bed assignments, and visitor gate passes.
-                    </p>
-                  </div>
-                }
+                element={<HostelPage />}
               />
 
               <Route

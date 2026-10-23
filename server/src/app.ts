@@ -19,6 +19,7 @@ import financeRoutes from './modules/finance/finance.routes';
 import libraryRoutes from './modules/library/library.routes';
 import transportRoutes from './modules/transport/transport.routes';
 import payrollRoutes from './modules/payroll/payroll.routes';
+import hostelRoutes from './modules/hostel/hostel.routes';
 
 export const createApp = () => {
   const app = express();
@@ -74,6 +75,7 @@ export const createApp = () => {
   app.use(`${env.API_PREFIX}/library`, libraryRoutes);
   app.use(`${env.API_PREFIX}/transport`, transportRoutes);
   app.use(`${env.API_PREFIX}/payroll`, payrollRoutes);
+  app.use(`${env.API_PREFIX}/hostel`, hostelRoutes);
 
   // 404 Fallback
   app.use((req: Request, res: Response) => {

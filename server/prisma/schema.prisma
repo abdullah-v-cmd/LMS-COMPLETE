@@ -111,6 +111,20 @@ enum BorrowStatus {
   LOST
 }
 
+enum HostelGatePassStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  DEPARTED
+  RETURNED
+}
+
+enum HostelChargeStatus {
+  UNPAID
+  PAID
+  WAIVED
+}
+
 // -------------------------------------------------------------
 // 1. INSTITUTIONS & CAMPUSES (MULTI-TENANCY)
 // -------------------------------------------------------------
@@ -158,6 +172,9 @@ model Institution {
   libraryFinePolicy  LibraryFinePolicy?
   transportRoutes    TransportRoute[]
   hostelBlocks       HostelBlock[]
+  hostelGatePasses   HostelGatePass[]
+  hostelVisitorLogs  HostelVisitorLog[]
+  hostelMessCharges  HostelMessCharge[]
   counselingCases    CounselingCase[]
   reportCards        StudentReportCard[]
 
@@ -429,6 +446,9 @@ model StudentProfile {
   borrowRecords     BookBorrowRecord[]
   transportAlloc    StudentTransportAllocation?
   hostelAlloc       HostelBedAllocation?
+  hostelGatePasses  HostelGatePass[]
+  hostelVisitorLogs HostelVisitorLog[]
+  hostelMessCharges HostelMessCharge[]
   counselingCases   CounselingCase[]
 
   @@unique([institutionId, admissionNumber])
@@ -1146,6 +1166,8 @@ model HostelBlock {
   institution Institution  @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   rooms       HostelRoom[]
 
+  @@unique([institutionId, name])
+
   @@map("hostel_blocks")
 }
 
@@ -1174,7 +1196,66 @@ model HostelBedAllocation {
   student StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
   room    HostelRoom     @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
+  @@unique([roomId, bedNumber])
   @@map("hostel_bed_allocations")
+}
+
+model HostelGatePass {
+  id                String               @id @default(uuid())
+  institutionId     String
+  studentId         String
+  reason            String
+  destination       String
+  requestedByUserId String
+  approvedByUserId  String?
+  status            HostelGatePassStatus @default(PENDING)
+  requestedAt       DateTime             @default(now())
+  expectedReturnAt  DateTime
+  departedAt        DateTime?
+  returnedAt        DateTime?
+
+  institution Institution    @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  student     StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([institutionId, status, requestedAt])
+  @@map("hostel_gate_passes")
+}
+
+model HostelVisitorLog {
+  id            String    @id @default(uuid())
+  institutionId String
+  studentId     String?
+  visitorName   String
+  purpose       String
+  enteredAt     DateTime  @default(now())
+  exitedAt      DateTime?
+  loggedByUserId String
+
+  institution Institution       @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  student     StudentProfile?   @relation(fields: [studentId], references: [id], onDelete: SetNull)
+
+  @@index([institutionId, enteredAt])
+  @@map("hostel_visitor_logs")
+}
+
+model HostelMessCharge {
+  id            String             @id @default(uuid())
+  institutionId String
+  studentId     String
+  period        String             @db.VarChar(7)
+  amount        Decimal            @db.Decimal(12, 2)
+  currencyCode  String             @db.VarChar(3)
+  status        HostelChargeStatus @default(UNPAID)
+  createdByUserId String
+  paidAt        DateTime?
+  createdAt     DateTime           @default(now())
+
+  institution Institution    @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  student     StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, period])
+  @@index([institutionId, period, status])
+  @@map("hostel_mess_charges")
 }
 
 model CounselingCase {

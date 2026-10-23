@@ -106,6 +106,11 @@ d:\lms2/
 - Exact next step: hostel management, then confidential counseling and referrals, then remaining library/transport/analytics requirements. Do not use the unconfirmed configured DB for migrations or DB tests.
 - Payroll checkpoint commit: `ac680a99d92b929b2c33b587a43ec3c6bb260858` (local only).
 
+### Hostel operations continuation — 2026-10-24
+- Added tenant-isolated block and room management, serializable capacity-aware bed allocation with collision checks, resident-only student gate-pass requests, warden approval/depart/return lifecycle, visitor in/out logging, mess charges/payment status, route audit events, and student/warden UI.
+- Added migration `20261024220000_hostel_operations`, unit schema tests, and a DB workflow covering the operational journey. Prisma validation/generation and server/client builds passed; focused checks passed 18/18. DB test and migration not run due to unconfirmed `lms2` and unavailable localhost PostgreSQL.
+- Scope still missing: residence stay check-in/out, hostel incidents, accounting integration for mess charges, and broader occupancy/dues reports. Next implement encrypted counseling workflows.
+
 ---
 
 ## 7. Commands Needed to Run & Test
