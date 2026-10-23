@@ -110,6 +110,7 @@ d:\lms2/
 - Added tenant-isolated block and room management, serializable capacity-aware bed allocation with collision checks, resident-only student gate-pass requests, warden approval/depart/return lifecycle, visitor in/out logging, mess charges/payment status, route audit events, and student/warden UI.
 - Added migration `20261024220000_hostel_operations`, unit schema tests, and a DB workflow covering the operational journey. Prisma validation/generation and server/client builds passed; focused checks passed 18/18. DB test and migration not run due to unconfirmed `lms2` and unavailable localhost PostgreSQL.
 - Scope still missing: residence stay check-in/out, hostel incidents, accounting integration for mess charges, and broader occupancy/dues reports. Next implement encrypted counseling workflows.
+- Hostel checkpoint commit: `421bc17df6770796a000f858d76a859902bfc3e4` (local only; no remote configured).
 
 ---
 
