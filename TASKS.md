@@ -186,7 +186,7 @@
   - **Status**: IN_PROGRESS
   - **Implemented**: Added `.github/workflows/ci.yml` with a job-scoped disposable PostgreSQL 16 service, migrations, seed, server/client builds, and the full server test suite. CI does not access local or production databases.
   - **Remaining**: Hosted CI execution evidence; comprehensive role/tenant matrix; performance/load checks; WCAG audit; backup/restore drill; and recovery verification.
-  - **Evidence**: Workflow committed locally; no hosted runner was available to execute it during this checkpoint.
+  - **Evidence**: Workflow committed locally; no hosted runner was available to execute it during this checkpoint. Focused non-database schemas/env validation ran locally: 23 passing tests across 7 files. Database-backed RBAC, tenant, and workflow suites were not run against local `lms2`.
 
 ### Phase 9: Deployment Readiness
 - [ ] **TASK-P9-01**
@@ -196,4 +196,4 @@
   - **Status**: IN_PROGRESS
   - **Implemented**: Production env validation requires unique 32-character non-default JWT secrets, HTTPS client origin, and PostgreSQL URL with TLS. Added DB-aware readiness check and `DEPLOYMENT.md` for release, migration, backup/restore, monitoring, rollback and limitations.
   - **Remaining**: Hosting/container release configuration, secret manager, production monitoring/alerts, backup schedule and witnessed restore drill. No deployment has been performed.
-  - **Verification**: Build checks are being rerun for the latest config/readiness changes; no hosted deployment or CI execution is claimed.
+  - **Verification**: Server/client production builds pass after readiness and environment changes; Prisma schema validation passes. `tests/env-schema.test.ts` passes production security validation cases. No hosted deployment or CI execution is claimed.

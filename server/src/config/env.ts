@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 dotenv.config();
 
-const envSchema = z.object({
+export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.string().default('4000').transform((val, ctx) => {
     const port = Number(val);
@@ -18,7 +18,11 @@ const envSchema = z.object({
   JWT_REFRESH_EXPIRY: z.string().default('7d'),
   CLIENT_URL: z.string().url().default('http://localhost:5173'),
   UPLOAD_DIR: z.string().default('./uploads'),
-  MAX_FILE_SIZE_MB: z.string().transform((val) => parseInt(val, 10)).default('10'),
+  MAX_FILE_SIZE_MB: z.string().default('10').transform((val, ctx) => {
+    const size = Number(val);
+    if (!Number.isInteger(size) || size < 1 || size > 1024) { ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'MAX_FILE_SIZE_MB must be an integer from 1 to 1024' }); return z.NEVER; }
+    return size;
+  }),
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'http', 'verbose', 'debug', 'silly']).default('info'),
 }).superRefine((config, ctx) => {
   if (config.NODE_ENV !== 'production') return;
