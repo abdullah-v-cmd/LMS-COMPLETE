@@ -272,6 +272,19 @@ All finance routes are mounted under `/api/v1/finance` with tenant context, fine
 | `GET /finance/ledger` | `ledger:read` | Returns the latest 500 tenant-scoped ledger entries |
 
 Refund persistence is introduced by migration `20261024150000_finance_refunds`. Payment-provider refunds remain unavailable until a provider is configured and verified; the API rejects refunds for `ONLINE` payments.
+
+### Implemented Library Routes
+
+| Route | Permission | Behavior |
+|---|---|---|
+| `GET /library/books` | `library:read` | Institution catalog |
+| `POST /library/books` | `library:manage` | Creates catalog item and inventory count |
+| `GET /library/loans` | `library:read` | Librarian view is institution scoped; students see only their loans |
+| `POST /library/loans` | `library:manage` | Checks out to an enrolled institution student and atomically decrements availability |
+| `POST /library/loans/:id/checkin` | `library:manage` | Checks in once, restores inventory, computes overdue days using the institution's configured fine policy |
+| `GET /library/fine-policy` / `PUT /library/fine-policy` | read / manage | Reads or audits an institution daily fine and currency setting |
+
+Library fine policy storage is introduced by `20261024170000_library_fines`. No configured rate means no fine accrues; lost items require a separate recovery workflow and cannot be checked in through the ordinary return route.
 | `GET /finance/ledger` | `ledger:read` | Tenant financial ledger, most recent 500 entries |
 
 Current finance exclusions: refund workflow and payment-provider integration/reconciliation. Serializable database transactions are used for invoice generation, payment posting, and waiver approval; concurrency behavior still needs PostgreSQL integration verification.

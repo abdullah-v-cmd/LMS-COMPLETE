@@ -14,6 +14,7 @@ import communicationRoutes from './modules/communication/communication.routes';
 import leaveRoutes from './modules/hr/leave.routes';
 import examsRoutes from './modules/exams/exams.routes';
 import financeRoutes from './modules/finance/finance.routes';
+import libraryRoutes from './modules/library/library.routes';
 
 export const createApp = () => {
   const app = express();
@@ -56,6 +57,7 @@ export const createApp = () => {
   app.use(`${env.API_PREFIX}/hr`, leaveRoutes);
   app.use(`${env.API_PREFIX}/exams`, examsRoutes);
   app.use(`${env.API_PREFIX}/finance`, financeRoutes);
+  app.use(`${env.API_PREFIX}/library`, libraryRoutes);
 
   // 404 Fallback
   app.use((req: Request, res: Response) => {

@@ -151,6 +151,7 @@ model Institution {
   announcements      Announcement[]
   notifications      Notification[]
   books              BookCatalog[]
+  libraryFinePolicy  LibraryFinePolicy?
   transportRoutes    TransportRoute[]
   hostelBlocks       HostelBlock[]
   counselingCases    CounselingCase[]
@@ -965,6 +966,19 @@ model BookCatalog {
   borrowRecords BookBorrowRecord[]
 
   @@map("book_catalogs")
+}
+
+model LibraryFinePolicy {
+  id              String   @id @default(uuid())
+  institutionId   String   @unique
+  dailyFine       Decimal  @db.Decimal(10, 2)
+  currencyCode    String   @default("PKR") @db.VarChar(3)
+  updatedByUserId String
+  updatedAt       DateTime @updatedAt
+
+  institution Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+
+  @@map("library_fine_policies")
 }
 
 model BookBorrowRecord {

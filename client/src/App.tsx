@@ -11,6 +11,7 @@ import { CommunicationPage } from './pages/CommunicationPage';
 import { LeavePage } from './pages/LeavePage';
 import { ExamsPage } from './pages/ExamsPage';
 import { FinancePage } from './pages/FinancePage';
+import { LibraryPage } from './pages/LibraryPage';
 
 export const App: React.FC = () => {
   return (
@@ -75,17 +76,7 @@ export const App: React.FC = () => {
 
               <Route path="/finance" element={<FinancePage />} />
 
-              <Route
-                path="/library"
-                element={
-                  <div className="bg-white p-6 rounded-2xl border border-slate-200">
-                    <h2 className="text-xl font-bold text-slate-900 mb-2">Library Catalog & Circulation</h2>
-                    <p className="text-sm text-slate-600">
-                      Book borrowing records, barcode cataloging, and overdue fine calculations.
-                    </p>
-                  </div>
-                }
-              />
+              <Route path="/library" element={<LibraryPage />} />
 
               <Route
                 path="/transport"

@@ -1,7 +1,7 @@
 # Live Development Tracker (TASKS.md)
 
 ## Project Summary
-- **Current Phase**: Phase 4 in progress; Phases 5–6 in progress; Phases 7–9 not started
+- **Current Phase**: Phases 4–7 in progress; Phases 8–9 not started
 - **Overall Task Counts by Status**:
   - NOT_STARTED: 3
   - IN_PROGRESS: 3
@@ -19,7 +19,7 @@
   - Phase 4: Daily and subject/period attendance, guardian explanation, staff leave, correction approvals, communication UI/API, and basic chronic-absence summary are implemented. Migration application and database-backed verification are pending (TASK-P4-01).
   - Phase 5: Exam setup, schedule roster/marks entry (including pasted CSV import), grade-change queue, publication controls, and report-card UI are implemented. Database workflow verification, invigilation, configurable grades, and printable verified report cards remain (TASK-P5-01).
   - Phase 6: Fee structure, invoice, collection, waiver, refund-request/review, ledger APIs and finance UI are implemented; provider integration and DB workflow verification remain (TASK-P6-01).
-  - Phase 7: Auxiliary modules (HR leaves/payroll, Library catalog/circulation, Transport routes, Hostel housing, Counseling cases) (TASK-P7-01).
+  - Phase 7: Staff leave and library catalog/circulation are implemented; payroll, transport, hostel, counseling, analytics and DB verification remain (TASK-P7-01).
   - Phase 8: Comprehensive end-to-end multi-tenant security verification suite (TASK-P8-01).
 - **Failed Tests**: The last focused validation run passed. The full database-backed suite has not been run in this checkpoint because the configured database is not confirmed as isolated and `localhost:5432` is unreachable.
 - **Active Blockers**: Database `lms2` from `server/.env` is not confirmed as a dedicated test database; the local PostgreSQL endpoint is unreachable. No migrations or DB tests were run.
@@ -168,7 +168,12 @@
   - **Requirement IDs**: Master Prompt Phase 7
   - **Feature**: HR, Library, Transport, Hostel, Counseling Modules
   - **Implementation Scope**: Functional HR, Library, Transport, Hostel, and Counseling modules; advanced reporting and analytics; documented permissions and scope. Master-prompt acceptance includes staff leaves/payroll, catalog/circulation, transport routes/allocations, hostel beds/gate passes, and restricted counseling records.
-  - **Status**: NOT_STARTED
+  - **Status**: IN_PROGRESS
+  - **Implemented**: Activated the library module with tenant-scoped catalog listing/creation, enrolled-student checkout, inventory reservation under serializable transaction, duplicate-loan prevention, student-only own-loan visibility, check-in, and overdue fine calculation using an institution-configured daily rate. Lost-book check-in is rejected to avoid silently restoring inventory. Fine policy is audited and has a dedicated migration; if the institution has not configured a rate, no fine accrues.
+  - **Remaining Acceptance Criteria**: Barcode lookup/reservations, inventory audits and lost-item recovery, payroll, transport routes/allocations, hostel beds/gate passes, confidential counselor case workflows, advanced analytics, tenant/RBAC and end-to-end database verification.
+  - **Relevant Files**: `server/src/modules/library/*`, `server/prisma/schema.prisma`, `server/prisma/migrations/20261024170000_library_fines/migration.sql`, `client/src/pages/LibraryPage.tsx`, `server/tests/library-schemas.test.ts`.
+  - **Verification**: `npx prisma validate` and `npx prisma generate` passed. Server and client production builds passed. `npx vitest run tests/library-schemas.test.ts tests/finance-schemas.test.ts tests/exam-schemas.test.ts tests/attendance-schemas.test.ts tests/leave-schemas.test.ts` passed (19 tests). Database-backed checkout/check-in workflows were not run because `lms2` is not confirmed as isolated; dedicated library integration workflow cases remain to be added/run.
+  - **Next Action**: Complete library workflow verification when isolated DB access is available, then implement transport, hostel, payroll, and counseling workflows.
 
 ---
 

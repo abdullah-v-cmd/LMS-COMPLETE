@@ -1,0 +1,20 @@
+import { Router } from 'express';
+import { requireAuth } from '../../middleware/auth';
+import { requireTenant } from '../../middleware/tenant';
+import { requirePermission } from '../../middleware/rbac';
+import { validateRequest } from '../../middleware/validate';
+import { logAuditEvent } from '../../middleware/audit';
+import { PERMISSIONS } from '../../constants/permissions';
+import { LibraryController } from './library.controller';
+import { bookSchema, borrowSchema, recordIdSchema, finePolicySchema } from './library.schemas';
+
+const router = Router();
+router.use(requireAuth, requireTenant);
+router.get('/books', requirePermission(PERMISSIONS.LIBRARY_READ), LibraryController.books);
+router.post('/books', requirePermission(PERMISSIONS.LIBRARY_MANAGE), validateRequest({ body: bookSchema }), logAuditEvent('LIBRARY_BOOK_CREATED', 'BookCatalog'), LibraryController.createBook);
+router.get('/loans', requirePermission(PERMISSIONS.LIBRARY_READ), LibraryController.loans);
+router.get('/fine-policy', requirePermission(PERMISSIONS.LIBRARY_READ), LibraryController.finePolicy);
+router.put('/fine-policy', requirePermission(PERMISSIONS.LIBRARY_MANAGE), validateRequest({ body: finePolicySchema }), logAuditEvent('LIBRARY_FINE_POLICY_UPDATED', 'LibraryFinePolicy'), LibraryController.saveFinePolicy);
+router.post('/loans', requirePermission(PERMISSIONS.LIBRARY_MANAGE), validateRequest({ body: borrowSchema }), logAuditEvent('LIBRARY_BOOK_CHECKED_OUT', 'BookBorrowRecord'), LibraryController.checkout);
+router.post('/loans/:id/checkin', requirePermission(PERMISSIONS.LIBRARY_MANAGE), validateRequest({ params: recordIdSchema }), logAuditEvent('LIBRARY_BOOK_CHECKED_IN', 'BookBorrowRecord'), LibraryController.checkin);
+export default router;
