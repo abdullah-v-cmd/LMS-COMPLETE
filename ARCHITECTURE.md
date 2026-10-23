@@ -265,6 +265,13 @@ All finance routes are mounted under `/api/v1/finance` with tenant context, fine
 | `POST /finance/payments` | `fee:collect` | Records cash, cheque, or bank payment transactionally, updates invoice and posts balanced ledger entries; client-asserted online payments are rejected |
 | `POST /finance/waivers` | `fee:waiver:request` | Fee clerk requests a reasoned waiver within outstanding balance |
 | `POST /finance/waivers/:id/review` | `fee:waiver:approve` | Tenant-scoped maker-checker approval/rejection; approval adjusts balance and posts balanced discount ledger entries |
+| `GET /finance/waivers` | waiver request or approve | Tenant-scoped waiver queue for finance UI |
+| `GET /finance/refunds` | refund request or approve | Tenant-scoped refund queue |
+| `POST /finance/refunds` | `fee:refund:request` | Requests a refund against an offline payment; pending and approved amounts reserve the refundable payment balance |
+| `POST /finance/refunds/:id/review` | `fee:refund:approve` | Maker-checker review; approval reverses invoice paid/balance values and posts balanced receivable/cash ledger rows in one serializable transaction |
+| `GET /finance/ledger` | `ledger:read` | Returns the latest 500 tenant-scoped ledger entries |
+
+Refund persistence is introduced by migration `20261024150000_finance_refunds`. Payment-provider refunds remain unavailable until a provider is configured and verified; the API rejects refunds for `ONLINE` payments.
 | `GET /finance/ledger` | `ledger:read` | Tenant financial ledger, most recent 500 entries |
 
 Current finance exclusions: refund workflow and payment-provider integration/reconciliation. Serializable database transactions are used for invoice generation, payment posting, and waiver approval; concurrency behavior still needs PostgreSQL integration verification.

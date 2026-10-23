@@ -83,8 +83,9 @@ d:\lms2/
 - **Last Verified Task**: TASK-P3-01 (Core LMS Courses, Modules, Lessons, Assignments & Grading; historical verification evidence is in TASKS.md).
 - **Current Task**: TASK-P4-01 (attendance/communication pages and workflows now implemented; subject/period attendance and DB-backed verification remain).
 - **Phase 5 State**: TASK-P5-01 APIs and role-aware exam UI with CSV paste/import implemented; integration verification, invigilation, configurable grading, and print remain.
-- **Parallel outstanding task**: TASK-P5-01 remains in progress (exam workflows/UI/integration verification); TASK-P6-01 remains in progress (refund/UI/transaction verification).
-- **Exact Next Action**: Continue Phase 5 invigilation/grading-scale/report-card requirements and Phase 6 finance UI/refunds. When an isolated test database is confirmed, apply the Phase 4 migration and run Phase 4–5 database workflows. Do not run DB suites against configured `lms2` without confirmation it is isolated.
+- **Phase 6 continuation**: Finance UI is connected at `/finance`; offline refund request/review uses pending reservation, checker authorization, invoice reversal and balanced ledger entries under a serializable transaction. `FeeRefundRequest` requires migration `20261024150000_finance_refunds`. Schema validation, Prisma generation, backend/client builds and 16 focused schema tests passed. Database verification remains pending.
+- **Parallel outstanding task**: TASK-P5-01 remains in progress (exam workflows/UI/integration verification); TASK-P6-01 remains in progress (finance DB transaction verification); TASK-P7-01 through TASK-P9-01 remain outstanding.
+- **Exact Next Action**: Continue Phase 5 invigilation/grading-scale/report-card requirements and Phase 7–9 work. When an isolated test database is confirmed, apply pending migrations and run Phases 4–6 workflows. Do not run DB suites against configured `lms2` without confirmation it is isolated.
 
 ---
 

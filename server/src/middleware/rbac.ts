@@ -46,3 +46,11 @@ export const requirePermission = (requiredPermission: string) => {
     next();
   };
 };
+
+export const requireAnyPermission = (...permissions: string[]) => {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    if (!req.user) return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required');
+    if (req.user.role === UserRole.ROLE_SUPER_ADMIN || permissions.some((permission) => req.user!.permissions.includes(permission))) return next();
+    return sendError(res, 403, 'INSUFFICIENT_PERMISSION', `Requires one of: ${permissions.join(', ')}`);
+  };
+};

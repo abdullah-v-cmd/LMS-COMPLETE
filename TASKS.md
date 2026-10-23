@@ -18,13 +18,13 @@
 - **Incomplete Features**:
   - Phase 4: Daily and subject/period attendance, guardian explanation, staff leave, correction approvals, communication UI/API, and basic chronic-absence summary are implemented. Migration application and database-backed verification are pending (TASK-P4-01).
   - Phase 5: Exam setup, schedule roster/marks entry (including pasted CSV import), grade-change queue, publication controls, and report-card UI are implemented. Database workflow verification, invigilation, configurable grades, and printable verified report cards remain (TASK-P5-01).
-  - Phase 6: Fee structure, invoice, collection, waiver, and ledger APIs are implemented; refunds and provider integration, UI, and DB verification remain (TASK-P6-01).
+  - Phase 6: Fee structure, invoice, collection, waiver, refund-request/review, ledger APIs and finance UI are implemented; provider integration and DB workflow verification remain (TASK-P6-01).
   - Phase 7: Auxiliary modules (HR leaves/payroll, Library catalog/circulation, Transport routes, Hostel housing, Counseling cases) (TASK-P7-01).
   - Phase 8: Comprehensive end-to-end multi-tenant security verification suite (TASK-P8-01).
 - **Failed Tests**: The last focused validation run passed. The full database-backed suite has not been run in this checkpoint because the configured database is not confirmed as isolated and `localhost:5432` is unreachable.
 - **Active Blockers**: Database `lms2` from `server/.env` is not confirmed as a dedicated test database; the local PostgreSQL endpoint is unreachable. No migrations or DB tests were run.
 - **Last Verified Task**: TASK-P3-01 (Core LMS Courses, Modules, Lessons, Assignments & Grading).
-- **Exact Next Task to Execute**: When a confirmed isolated PostgreSQL test database is available, apply the Phase 4 migration and run the attendance/exam integration workflows. Meanwhile continue Phase 5 import, invigilation, and grading-scale gaps and Phase 6 refunds/UI, then implement Phases 7–9. Do not run DB suites against unidentified database `lms2`.
+- **Exact Next Task to Execute**: Continue Phase 5 invigilation/grading-scale/report-card gaps and implement Phase 7 auxiliary modules while preparing secure Phase 8/9 readiness. When a confirmed isolated PostgreSQL test database is available, apply pending migrations and execute database-backed workflows. Do not run DB suites against unidentified database `lms2`.
 
 ---
 
@@ -152,14 +152,14 @@
   - **Feature**: Invoices, Payments, Maker-Checker Waivers & Ledgers
   - **Implementation Scope**: Fee structure setup, student fee invoicing, counter collection (Cash/Cheque/Bank/Online), receipt generation, dual-approval waivers (Clerk Maker → Finance Head Checker), and ledger entries.
   - **Status**: IN_PROGRESS
-  - **Implemented**: Added a tenant-scoped fee structure, invoice generation, invoice listing, cash/cheque/bank payment collection, waiver request/review, and ledger API. Payment and approved waiver posting update invoice balances and create balanced double-entry ledger rows within serializable transactions. Online payment methods are rejected because provider verification is not integrated. Parent and student invoice lists are limited to linked profiles.
+  - **Implemented**: Added a tenant-scoped fee structure, invoice generation, invoice listing, cash/cheque/bank payment collection, waiver request/review, refund request/review, finance UI, and ledger API. Refund requests reserve remaining payment value, reject unconfigured online-provider refunds, enforce checker roles/maker-checker, and approval reverses invoice balance and posts balanced ledger rows transactionally. Payment and approved waiver posting update invoice balances and create balanced double-entry ledger rows within serializable transactions. Online payments are rejected because provider verification is not integrated. Parent and student invoice lists are limited to linked profiles.
   - **Relevant Files**: `server/src/modules/finance/*`, `server/src/app.ts`, `server/tests/finance-schemas.test.ts`, `ARCHITECTURE.md`.
-  - **Database Changes**: None in this iteration; reuses current schema. Refund entity/workflow is not modeled yet.
+  - **Database Changes**: Added `FeeRefundRequest` and `RefundStatus` in `server/prisma/schema.prisma`; migration `20261024150000_finance_refunds` must be applied in an approved environment.
   - **Dependencies**: Existing fee and ledger schema; PostgreSQL needed for transaction and concurrency verification.
   - **Acceptance Criteria**: Invoice generation is tenant/class scoped and skips existing invoices; collection cannot exceed balance; online confirmations are rejected; payments and approved waivers update ledger with balanced debits and credits; waiver requester cannot approve own request; parent/student invoice data is scoped.
-  - **Required Tests**: Schema tests and DB integration for invoice generation idempotence, partial/full payment, overspend, balanced ledger, tenant isolation, and maker-checker/concurrency.
-  - **Actual Verification Evidence**: `npm run build` in `server/` passed. `npx vitest run tests/exam-schemas.test.ts tests/finance-schemas.test.ts` passed (7 tests). Finance database tests are not yet implemented; PostgreSQL is unavailable.
-  - **Blocker or Next Action**: Add transaction integration tests, refund workflow/schema, and finance UI; run against PostgreSQL when available. Do not claim refunds or online provider payments are complete.
+  - **Required Tests**: Schema tests and DB integration for invoice generation idempotence, partial/full payment, overspend, balanced ledger, refund reservation/reversal, tenant isolation, and maker-checker/concurrency.
+  - **Actual Verification Evidence**: `npx prisma validate` passed; Prisma Client generated. `npm run build` passed in `server/` after generation and in `client/`. `npx vitest run tests/finance-schemas.test.ts tests/exam-schemas.test.ts tests/attendance-schemas.test.ts tests/leave-schemas.test.ts` passed (16 tests). `npx tsc --noEmit --pretty false` passed. Added `tests/finance-refund-workflow.test.ts` covering persisted payment/refund, maker-checker rejection, invoice reversal, and balanced ledger; the DB workflow itself was not run because configured DB `lms2` is not confirmed isolated and `localhost:5432` was unreachable at last check.
+  - **Blocker or Next Action**: Apply the refund migration and add/run finance transaction integration tests on a confirmed isolated PostgreSQL database. Provider payment/refund integration is not configured and is intentionally rejected.
 
 ---
 

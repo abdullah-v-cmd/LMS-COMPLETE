@@ -1,4 +1,4 @@
-import { InvoiceStatus, PaymentMethod, Prisma, UserRole, WaiverStatus } from '@prisma/client';
+import { InvoiceStatus, PaymentMethod, Prisma, RefundStatus, UserRole, WaiverStatus } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { AuthenticatedUser } from '../../types';
 import { prisma } from '../../utils/prisma';
@@ -72,9 +72,76 @@ export class FinanceService {
         feeStructure: true,
         payments: true,
         waivers: true,
+        refunds: { orderBy: { createdAt: 'desc' } },
       },
       orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
     });
+  }
+
+  static async getWaivers(institutionId: string) {
+    return prisma.feeWaiverRequest.findMany({ where: { institutionId }, include: { invoice: { select: { invoiceNumber: true, balanceAmount: true, student: { select: { admissionNumber: true, user: { select: { firstName: true, lastName: true } } } } } } }, orderBy: { createdAt: 'desc' } });
+  }
+
+  static async getRefunds(institutionId: string) {
+    return prisma.feeRefundRequest.findMany({
+      where: { institutionId },
+      include: {
+        payment: { select: { receiptNumber: true, paymentMethod: true, amountPaid: true } },
+        invoice: { select: { invoiceNumber: true, student: { select: { admissionNumber: true, user: { select: { firstName: true, lastName: true } } } } } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  static async requestRefund(institutionId: string, makerId: string, data: { paymentId: string; amount: number; reason: string }) {
+    const amount = decimal(data.amount);
+    return prisma.$transaction(async (tx) => {
+      const [maker, payment] = await Promise.all([
+        tx.user.findFirst({ where: { id: makerId, institutionId }, select: { id: true } }),
+        tx.feePayment.findFirst({ where: { id: data.paymentId, institutionId }, include: { invoice: true } }),
+      ]);
+      if (!maker) throw { status: 403, message: 'Refund requester is not a member of this institution' };
+      if (!payment || payment.invoice.institutionId !== institutionId) throw notFound('Payment not found in this institution');
+      if (payment.paymentMethod === PaymentMethod.ONLINE) throw { status: 409, message: 'Provider-processed refunds are unavailable until payment-provider integration is configured' };
+      if (payment.invoice.status === InvoiceStatus.CANCELLED) throw { status: 409, message: 'Cancelled invoices cannot be refunded' };
+      const reserved = await tx.feeRefundRequest.aggregate({ where: { paymentId: payment.id, status: { in: [RefundStatus.PENDING, RefundStatus.APPROVED] } }, _sum: { amount: true } });
+      const remainingOnPayment = payment.amountPaid.sub(reserved._sum.amount ?? decimal(0));
+      if (amount.gt(remainingOnPayment)) throw { status: 400, message: 'Refund requests cannot exceed the unrefunded payment amount' };
+      return tx.feeRefundRequest.create({ data: { institutionId, paymentId: payment.id, invoiceId: payment.invoiceId, amount, reason: data.reason, requestedByUserId: makerId } });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  static async reviewRefund(institutionId: string, requestId: string, reviewerId: string, status: 'APPROVED' | 'REJECTED') {
+    return prisma.$transaction(async (tx) => {
+      const reviewer = await tx.user.findFirst({ where: { id: reviewerId, institutionId }, select: { role: true } });
+      const approverRoles: UserRole[] = [UserRole.ROLE_SUPER_ADMIN, UserRole.ROLE_INSTITUTION_ADMIN, UserRole.ROLE_FINANCE_HEAD];
+      if (!reviewer || !approverRoles.includes(reviewer.role)) throw { status: 403, message: 'Only an authorized finance checker may review refunds' };
+      const refund = await tx.feeRefundRequest.findFirst({ where: { id: requestId, institutionId }, include: { payment: true, invoice: true } });
+      if (!refund) throw notFound('Refund request not found in this institution');
+      if (refund.requestedByUserId === reviewerId) throw { status: 403, message: 'Maker-Checker violation: You cannot approve your own refund request' };
+      if (refund.status !== RefundStatus.PENDING) throw { status: 409, message: 'Refund request has already been reviewed' };
+      const claimed = await tx.feeRefundRequest.updateMany({ where: { id: requestId, institutionId, status: RefundStatus.PENDING }, data: { status: status as RefundStatus, approvedByUserId: reviewerId, reviewedAt: new Date() } });
+      if (claimed.count !== 1) throw { status: 409, message: 'Refund request has already been reviewed' };
+      if (status === 'APPROVED') {
+        const paymentReservations = await tx.feeRefundRequest.aggregate({ where: { paymentId: refund.paymentId, status: RefundStatus.APPROVED, id: { not: refund.id } }, _sum: { amount: true } });
+        const alreadyRefunded = paymentReservations._sum.amount ?? decimal(0);
+        if (refund.amount.gt(refund.payment.amountPaid.sub(alreadyRefunded))) throw { status: 409, message: 'Payment amount is no longer sufficient for this refund' };
+        const currentInvoice = await tx.studentFeeInvoice.findFirst({ where: { id: refund.invoiceId, institutionId } });
+        if (!currentInvoice || currentInvoice.status === InvoiceStatus.CANCELLED) throw { status: 409, message: 'Invoice is no longer eligible for refund' };
+        const nextPaid = currentInvoice.paidAmount.sub(refund.amount);
+        const nextBalance = currentInvoice.balanceAmount.add(refund.amount);
+        const netCharge = currentInvoice.totalAmount.sub(currentInvoice.discountAmount);
+        if (currentInvoice.paidAmount.lt(refund.amount) || nextBalance.gt(netCharge)) throw { status: 409, message: 'Invoice totals changed; refund would make its balance inconsistent' };
+        await tx.studentFeeInvoice.update({ where: { id: currentInvoice.id }, data: { paidAmount: { decrement: refund.amount }, balanceAmount: { increment: refund.amount }, status: nextPaid.isZero() ? InvoiceStatus.UNPAID : InvoiceStatus.PARTIAL } });
+        const refundAccount = refund.payment.paymentMethod === PaymentMethod.CASH ? '1000-CASH' : refund.payment.paymentMethod === PaymentMethod.CHEQUE ? '1010-CHEQUE-CLEARING' : '1020-BANK';
+        await tx.financialLedgerEntry.createMany({ data: [
+          { institutionId, accountCode: '1100-ACCOUNTS-RECEIVABLE', debitAmount: refund.amount, referenceType: 'REFUND', referenceId: refund.id, description: `Approved refund for receipt ${refund.paymentId}`, createdByUserId: reviewerId },
+          { institutionId, accountCode: refundAccount, creditAmount: refund.amount, referenceType: 'REFUND', referenceId: refund.id, description: `Refund of fee payment ${refund.paymentId}`, createdByUserId: reviewerId },
+        ] });
+      }
+      await tx.notification.create({ data: { institutionId, userId: refund.requestedByUserId, title: `Fee refund ${status.toLowerCase()}`, message: `Your fee refund request has been ${status.toLowerCase()}.`, type: status === 'APPROVED' ? 'SUCCESS' : 'INFO' } });
+      return tx.feeRefundRequest.findUniqueOrThrow({ where: { id: requestId } });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   static async recordPayment(institutionId: string, actorId: string, data: { invoiceId: string; amount: number; paymentMethod: PaymentMethod; transactionRef?: string }) {

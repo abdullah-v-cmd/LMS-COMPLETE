@@ -26,3 +26,4 @@ export const waiverRequestSchema = z.object({
 });
 export const waiverReviewSchema = z.object({ status: z.enum(['APPROVED', 'REJECTED']) });
 export const waiverIdSchema = z.object({ id: z.string().uuid() });
+export const refundRequestSchema = z.object({ paymentId: z.string().uuid(), amount: money, reason: z.string().trim().min(5).max(1000) });

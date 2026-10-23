@@ -10,6 +10,7 @@ import { AttendancePage } from './pages/AttendancePage';
 import { CommunicationPage } from './pages/CommunicationPage';
 import { LeavePage } from './pages/LeavePage';
 import { ExamsPage } from './pages/ExamsPage';
+import { FinancePage } from './pages/FinancePage';
 
 export const App: React.FC = () => {
   return (
@@ -72,17 +73,7 @@ export const App: React.FC = () => {
 
               <Route path="/exams" element={<ExamsPage />} />
 
-              <Route
-                path="/finance"
-                element={
-                  <div className="bg-white p-6 rounded-2xl border border-slate-200">
-                    <h2 className="text-xl font-bold text-slate-900 mb-2">Finance & Fee Ledgers</h2>
-                    <p className="text-sm text-slate-600">
-                      Fee invoicing, payment receipts, Maker-Checker waiver requests, and double-entry ledger audits.
-                    </p>
-                  </div>
-                }
-              />
+              <Route path="/finance" element={<FinancePage />} />
 
               <Route
                 path="/library"

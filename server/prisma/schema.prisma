@@ -91,6 +91,12 @@ enum WaiverStatus {
   REJECTED
 }
 
+enum RefundStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum LeaveStatus {
   PENDING
   APPROVED
@@ -139,6 +145,7 @@ model Institution {
   studentFeeInvoices StudentFeeInvoice[]
   feePayments        FeePayment[]
   feeWaivers         FeeWaiverRequest[]
+  feeRefunds         FeeRefundRequest[]
   ledgerEntries      FinancialLedgerEntry[]
   auditEvents        AuditEvent[]
   announcements      Announcement[]
@@ -838,6 +845,7 @@ model StudentFeeInvoice {
   feeStructure FeeStructure       @relation(fields: [feeStructureId], references: [id], onDelete: Restrict)
   payments     FeePayment[]
   waivers      FeeWaiverRequest[]
+  refunds      FeeRefundRequest[]
 
   @@index([institutionId, studentId, status])
   @@map("student_fee_invoices")
@@ -857,6 +865,7 @@ model FeePayment {
 
   institution Institution       @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   invoice     StudentFeeInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  refunds     FeeRefundRequest[]
 
   @@map("fee_payments")
 }
@@ -877,6 +886,27 @@ model FeeWaiverRequest {
   invoice     StudentFeeInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
   @@map("fee_waiver_requests")
+}
+
+model FeeRefundRequest {
+  id                String       @id @default(uuid())
+  institutionId     String
+  paymentId         String
+  invoiceId         String
+  amount            Decimal      @db.Decimal(12, 2)
+  reason            String
+  requestedByUserId String
+  approvedByUserId  String?
+  status            RefundStatus @default(PENDING)
+  createdAt         DateTime     @default(now())
+  reviewedAt        DateTime?
+
+  institution Institution    @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  payment     FeePayment     @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  invoice     StudentFeeInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([institutionId, status, createdAt])
+  @@map("fee_refund_requests")
 }
 
 model FinancialLedgerEntry {

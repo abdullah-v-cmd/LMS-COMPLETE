@@ -28,4 +28,16 @@ export class FinanceController {
   static async getLedger(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try { return sendSuccess(res, await FinanceService.getLedger(req.institutionId!)); } catch (error) { next(error); }
   }
+  static async getWaivers(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try { return sendSuccess(res, await FinanceService.getWaivers(req.institutionId!)); } catch (error) { next(error); }
+  }
+  static async getRefunds(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try { return sendSuccess(res, await FinanceService.getRefunds(req.institutionId!)); } catch (error) { next(error); }
+  }
+  static async requestRefund(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try { return sendSuccess(res, await FinanceService.requestRefund(req.institutionId!, req.user!.id, req.body), 201); } catch (error) { next(error); }
+  }
+  static async reviewRefund(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try { return sendSuccess(res, await FinanceService.reviewRefund(req.institutionId!, req.params.id, req.user!.id, req.body.status)); } catch (error) { next(error); }
+  }
 }
