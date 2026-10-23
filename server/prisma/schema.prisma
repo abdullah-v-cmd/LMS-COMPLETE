@@ -182,6 +182,7 @@ model Institution {
   hostelVisitorLogs  HostelVisitorLog[]
   hostelMessCharges  HostelMessCharge[]
   hostelIncidents    HostelIncident[]
+  hostelStays        HostelStay[]
   counselingCases    CounselingCase[]
   counselingReferrals CounselingReferral[]
   counselingAtRiskRules CounselingAtRiskRule[]
@@ -460,6 +461,7 @@ model StudentProfile {
   hostelVisitorLogs HostelVisitorLog[]
   hostelMessCharges HostelMessCharge[]
   hostelIncidents   HostelIncident[]
+  hostelStays       HostelStay[]
   counselingCases   CounselingCase[]
   counselingReferrals CounselingReferral[]
 
@@ -1193,6 +1195,7 @@ model HostelRoom {
 
   block       HostelBlock           @relation(fields: [blockId], references: [id], onDelete: Cascade)
   allocations HostelBedAllocation[]
+  stays       HostelStay[]
 
   @@unique([blockId, roomNumber])
   @@map("hostel_rooms")
@@ -1270,6 +1273,22 @@ model HostelMessCharge {
   @@map("hostel_mess_charges")
 }
 
+model HostelStay {
+  id            String   @id @default(uuid())
+  institutionId String
+  studentId     String
+  roomId        String
+  checkedInAt   DateTime
+  checkedOutAt  DateTime?
+  recordedByUserId String
+  createdAt     DateTime @default(now())
+  institution Institution    @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  student     StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  room        HostelRoom     @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  @@index([institutionId, checkedInAt])
+  @@index([studentId, checkedOutAt])
+  @@map("hostel_stays")
+}
 model HostelIncident {
   id            String   @id @default(uuid())
   institutionId String

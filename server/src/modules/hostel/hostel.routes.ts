@@ -6,7 +6,7 @@ import { validateRequest } from '../../middleware/validate';
 import { logAuditEvent } from '../../middleware/audit';
 import { PERMISSIONS } from '../../constants/permissions';
 import { HostelController } from './hostel.controller';
-import { allocationSchema, blockSchema, gatePassReviewSchema, gatePassSchema, idParamsSchema, messChargeSchema, roomSchema, visitorSchema, incidentSchema } from './hostel.schemas';
+import { allocationSchema, blockSchema, gatePassReviewSchema, gatePassSchema, idParamsSchema, messChargeSchema, roomSchema, visitorSchema, incidentSchema, checkInSchema } from './hostel.schemas';
 
 const router = Router();
 router.use(requireAuth, requireTenant);
@@ -15,7 +15,9 @@ router.post('/blocks', requirePermission(PERMISSIONS.HOSTEL_MANAGE), validateReq
 router.post('/rooms', requirePermission(PERMISSIONS.HOSTEL_MANAGE), validateRequest({ body: roomSchema }), logAuditEvent('HOSTEL_ROOM_CREATED', 'HostelRoom'), HostelController.createRoom);
 router.get('/allocations', requirePermission(PERMISSIONS.HOSTEL_READ), HostelController.allocations);
 router.post('/allocations', requirePermission(PERMISSIONS.HOSTEL_MANAGE), validateRequest({ body: allocationSchema }), logAuditEvent('HOSTEL_BED_ALLOCATED', 'HostelBedAllocation'), HostelController.allocate);
-router.get('/gate-passes/mine', requirePermission(PERMISSIONS.HOSTEL_REQUEST), HostelController.myGatePasses);
+router.get('/stays', requirePermission(PERMISSIONS.HOSTEL_READ), HostelController.stays);
+router.post('/stays/check-in', requirePermission(PERMISSIONS.HOSTEL_MANAGE), validateRequest({ body: checkInSchema }), logAuditEvent('HOSTEL_STUDENT_CHECKED_IN', 'HostelStay'), HostelController.checkIn);
+router.post('/stays/:id/check-out', requirePermission(PERMISSIONS.HOSTEL_MANAGE), validateRequest({ params: idParamsSchema }), logAuditEvent('HOSTEL_STUDENT_CHECKED_OUT', 'HostelStay'), HostelController.checkOut);router.get('/gate-passes/mine', requirePermission(PERMISSIONS.HOSTEL_REQUEST), HostelController.myGatePasses);
 router.post('/gate-passes', requirePermission(PERMISSIONS.HOSTEL_REQUEST), validateRequest({ body: gatePassSchema }), logAuditEvent('HOSTEL_GATE_PASS_REQUESTED', 'HostelGatePass'), HostelController.requestGatePass);
 router.get('/gate-passes', requirePermission(PERMISSIONS.HOSTEL_READ), HostelController.gatePasses);
 router.post('/gate-passes/:id/review', requirePermission(PERMISSIONS.HOSTEL_MANAGE), validateRequest({ params: idParamsSchema, body: gatePassReviewSchema }), logAuditEvent('HOSTEL_GATE_PASS_REVIEWED', 'HostelGatePass'), HostelController.reviewGatePass);

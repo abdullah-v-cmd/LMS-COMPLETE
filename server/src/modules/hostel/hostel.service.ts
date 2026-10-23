@@ -28,6 +28,7 @@ export class HostelService {
         tx.hostelBedAllocation.findUnique({ where: { studentId: data.studentId }, select: { id: true, roomId: true, bedNumber: true } }),
       ]);
       if (!room || !student) throw { status: 404, message: 'Room or enrolled student not found in this institution' };
+      if (existing && (existing.roomId !== room.id || existing.bedNumber !== data.bedNumber) && await tx.hostelStay.findFirst({ where: { studentId: student.id, institutionId, checkedOutAt: null }, select: { id: true } })) throw { status: 409, message: 'Check the resident out before changing their room assignment' };
       if (data.bedNumber > room.capacity) throw { status: 400, message: 'Bed number exceeds room capacity' };
       const occupied = await tx.hostelBedAllocation.count({ where: { roomId: room.id, studentId: { not: student.id } } });
       if (occupied >= room.capacity) throw { status: 409, message: 'Room capacity is full' };
@@ -43,7 +44,27 @@ export class HostelService {
       return allocation;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
-  static async requestGatePass(user: AuthenticatedUser, institutionId: string, data: { reason: string; destination: string; expectedReturnAt: string }) {
+  static stays(institutionId: string) { return prisma.hostelStay.findMany({ where: { institutionId }, include: { room: { include: { block: { select: { name: true } } } }, student: { select: { id: true, admissionNumber: true, user: { select: { firstName: true, lastName: true } } } } }, orderBy: { checkedInAt: 'desc' } }); }
+  static async checkIn(institutionId: string, userId: string, studentId: string) {
+    return prisma.$transaction(async (tx) => {
+      const allocation = await tx.hostelBedAllocation.findFirst({ where: { studentId, room: { block: { institutionId } }, student: { institutionId, status: 'ENROLLED' } }, include: { room: true } });
+      if (!allocation) throw { status: 404, message: 'Current in-tenant bed allocation not found' };
+      const active = await tx.hostelStay.findFirst({ where: { studentId, institutionId, checkedOutAt: null }, select: { id: true } });
+      if (active) throw { status: 409, message: 'Student is already checked in' };
+      return tx.hostelStay.create({ data: { institutionId, studentId, roomId: allocation.roomId, checkedInAt: new Date(), recordedByUserId: userId } });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+  static async checkOut(institutionId: string, stayId: string, userId: string) {
+    return prisma.$transaction(async (tx) => {
+      const stay = await tx.hostelStay.findFirst({ where: { id: stayId, institutionId, checkedOutAt: null }, select: { id: true, studentId: true, roomId: true } });
+      if (!stay) throw { status: 404, message: 'Active hostel stay not found' };
+      const updated = await tx.hostelStay.updateMany({ where: { id: stay.id, institutionId, checkedOutAt: null }, data: { checkedOutAt: new Date(), recordedByUserId: userId } });
+      if (updated.count !== 1) throw { status: 409, message: 'Stay was already checked out' };
+      const allocation = await tx.hostelBedAllocation.findFirst({ where: { studentId: stay.studentId, roomId: stay.roomId } });
+      if (allocation) { await tx.hostelBedAllocation.delete({ where: { id: allocation.id } }); await tx.hostelRoom.update({ where: { id: stay.roomId }, data: { occupiedBeds: { decrement: 1 } } }); }
+      return tx.hostelStay.findFirstOrThrow({ where: { id: stay.id, institutionId } });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }  static async requestGatePass(user: AuthenticatedUser, institutionId: string, data: { reason: string; destination: string; expectedReturnAt: string }) {
     const student = await prisma.studentProfile.findFirst({ where: { userId: user.id, institutionId, status: 'ENROLLED', hostelAlloc: { isNot: null } }, select: { id: true } });
     if (!student) throw { status: 403, message: 'An enrolled student profile in this institution is required' };
     const expectedReturnAt = new Date(data.expectedReturnAt);

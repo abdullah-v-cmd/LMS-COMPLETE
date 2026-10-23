@@ -41,5 +41,10 @@ describe('Phase 7: tenant-scoped hostel resident workflows', () => {
     expect(charge.status).toBe(201);
     expect((await request(app).post(`/api/v1/hostel/mess-charges/${charge.body.data.id}/pay`).set('Authorization', `Bearer ${wardenToken}`)).body.data.status).toBe('PAID');
     expect((await request(app).get('/api/v1/hostel/allocations').set('Authorization', `Bearer ${wardenToken}`)).body.data.some((row: { studentId: string }) => row.studentId === student.id)).toBe(true);
-  });
+    const stay = await request(app).post('/api/v1/hostel/stays/check-in').set('Authorization', `Bearer ${wardenToken}`).send({ studentId: student.id });
+    expect(stay.status).toBe(201);
+    expect((await request(app).post('/api/v1/hostel/stays/check-in').set('Authorization', `Bearer ${wardenToken}`).send({ studentId: student.id })).status).toBe(409);
+    expect((await request(app).get('/api/v1/hostel/stays').set('Authorization', `Bearer ${wardenToken}`)).body.data.some((row: { id: string }) => row.id === stay.body.data.id)).toBe(true);
+    expect((await request(app).post(`/api/v1/hostel/stays/${stay.body.data.id}/check-out`).set('Authorization', `Bearer ${wardenToken}`)).body.data.checkedOutAt).toBeTruthy();
+    expect((await prisma.hostelRoom.findUniqueOrThrow({ where: { id: room.body.data.id } })).occupiedBeds).toBe(0);  });
 });

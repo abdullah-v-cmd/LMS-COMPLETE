@@ -116,7 +116,7 @@ d:\lms2/
 - Added teacher section-scoped and parent linked-child referral permissions, counselor-only cases, authenticated AES-256-GCM encryption for new private content, audit payload redaction, support plans/follow-ups, configurable absence and grade rules, and an at-risk query limited to counselors. UI provides referring, private case work, support planning, and threshold management.
 - Production config now requires an independent `COUNSELING_ENCRYPTION_SECRET`; it is supplied to CI and documented for deployment. Migration `20261024230000_confidential_counseling` adds new encrypted fields/tables without dropping existing data.
 - Verification: Prisma validate/generate, server/client builds passed; 22 non-database tests passed across eight files. A DB workflow test was added but not run; migration not applied. Browser interactions and key rotation/decryption procedure remain unverified.
-- Exact next task: finish hostel residence check-in/out, then remaining library/transport requirements, analytics, and Phases 8–9 verification. Never migrate or run DB tests against unconfirmed `lms2`.
+- Exact next task: finish library ISBN/barcode copy tracking and lost-book recovery/reservations, then transport stops/documents/driver assignments/incidents, analytics, and Phases 8–9 verification. Never migrate or run DB tests against unconfirmed `lms2`.
 
 ---
 

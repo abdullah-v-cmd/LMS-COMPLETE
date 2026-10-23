@@ -10,3 +10,5 @@ export const idParamsSchema = z.object({ id: z.string().uuid() });
 export const gatePassReviewSchema = z.object({ status: z.enum(['APPROVED', 'REJECTED']) });
 
 export const incidentSchema = z.object({ studentId: z.string().uuid().optional(), category: z.enum(['SAFETY', 'PROPERTY', 'DISCIPLINE', 'HEALTH', 'OTHER']), description: z.string().trim().min(5).max(2000), occurredAt: z.string().datetime() }).strict();
+
+export const checkInSchema = z.object({ studentId: z.string().uuid() }).strict();
