@@ -1,0 +1,187 @@
+# Live Development Tracker (TASKS.md)
+
+## Project Summary
+- **Current Phase**: Phase 4 in progress; Phases 5–6 in progress; Phases 7–9 not started
+- **Overall Task Counts by Status**:
+  - NOT_STARTED: 3
+  - IN_PROGRESS: 3
+  - BLOCKED: 0
+  - IMPLEMENTED: 0
+  - TESTING: 0
+  - VERIFIED: 9 (TASK-P0-01, TASK-P1-01, TASK-P1-02, TASK-P1-03, TASK-P1-04, TASK-P1-05, TASK-P2-01, TASK-P2-02, TASK-P3-01)
+  - FAILED: 0
+- **Verified Features**:
+  - Phase 0: Workspace inspection, runtime confirmation, 6 master documentation files.
+  - Phase 1: PostgreSQL 16 schema, Prisma migrations, Argon2id/bcrypt auth, JWT access/refresh token rotation, RBAC permission matrix for all 16 roles, multi-tenant row-level isolation, seed data for 2 institutions and 16 roles, React 18 + Vite + Tailwind + TanStack Query client build, and responsive 16-role dashboard shell.
+  - Phase 2: Academic years/terms, Grade 10 classes and sections, subjects, teacher allocations, transactional student profile provisioning, and parent-student relationship linking.
+  - Phase 3: Course workspaces, modules, rich text lessons, assignment creation with late rules, student submission portal, teacher grading workflow with feedback, and immutable audit event trails.
+- **Incomplete Features**:
+  - Phase 4: Daily and subject/period attendance, guardian explanation, staff leave, correction approvals, communication UI/API, and basic chronic-absence summary are implemented. Migration application and database-backed verification are pending (TASK-P4-01).
+  - Phase 5: Examinations API is in place; database workflow tests and UI, configurable grades, seating/invigilation, and printable verified report cards remain (TASK-P5-01).
+  - Phase 6: Fee structure, invoice, collection, waiver, and ledger APIs are implemented; refunds and provider integration, UI, and DB verification remain (TASK-P6-01).
+  - Phase 7: Auxiliary modules (HR leaves/payroll, Library catalog/circulation, Transport routes, Hostel housing, Counseling cases) (TASK-P7-01).
+  - Phase 8: Comprehensive end-to-end multi-tenant security verification suite (TASK-P8-01).
+- **Failed Tests**: The last focused validation run passed. The full database-backed suite has not been run in this checkpoint because the configured database is not confirmed as isolated and `localhost:5432` is unreachable.
+- **Active Blockers**: Database `lms2` from `server/.env` is not confirmed as a dedicated test database; the local PostgreSQL endpoint is unreachable. No migrations or DB tests were run.
+- **Last Verified Task**: TASK-P3-01 (Core LMS Courses, Modules, Lessons, Assignments & Grading).
+- **Exact Next Task to Execute**: Add and run Phase 4 integration/E2E workflows against a confirmed isolated database; then finish missing Phase 5/6 client workflows and finance refunds, before Phase 7 modules and Phases 8–9. Do not run mutating DB suites against an unidentified database.
+
+---
+
+## Detailed Task Checklist
+
+### Phase 0: Repository Inspection and Planning
+- [x] **TASK-P0-01**
+  - **Requirement IDs**: N/A
+  - **Feature**: Project Governance & Initial Documentation
+  - **Implementation Scope**: Inspect workspace, detect runtime environment, create PRD.md, ARCHITECTURE.md, RULES.md, DESIGN.md, TASKS.md, MEMORY.md.
+  - **Relevant Files**: `PRD.md`, `ARCHITECTURE.md`, `RULES.md`, `DESIGN.md`, `TASKS.md`, `MEMORY.md`.
+  - **Status**: VERIFIED
+  - **Actual Verification Evidence**: All 6 master documentation files created and aligned with codebase requirements.
+
+---
+
+### Phase 1: Foundation (Auth, Multi-Tenancy, RBAC, Core Infra)
+- [x] **TASK-P1-01**
+  - **Requirement IDs**: AUTH-001, AUTH-002, INST-004
+  - **Feature**: Backend Infrastructure & Prisma Database Setup
+  - **Implementation Scope**: Prisma PostgreSQL schema with models for multi-tenancy, users, academic structure, LMS, exams, finance, and audit events. Initial migration `20261021191751_init`.
+  - **Relevant Files**: `server/prisma/schema.prisma`, `server/src/server.ts`, `server/src/app.ts`.
+  - **Status**: VERIFIED
+  - **Actual Verification Evidence**: `npx prisma migrate dev` executed successfully; database synced.
+
+- [x] **TASK-P1-02**
+  - **Requirement IDs**: AUTH-001, AUTH-002, AUTH-003, AUTH-006, AUTH-007
+  - **Feature**: Authentication Engine & JWT Token Lifecycle
+  - **Implementation Scope**: Login with bcrypt password verification, short-lived 15m JWT access tokens, 7d refresh token rotation and revocation, `/auth/me`, `/auth/logout`.
+  - **Relevant Files**: `server/src/modules/auth/*`, `server/src/utils/jwt.ts`, `server/src/utils/password.ts`.
+  - **Status**: VERIFIED
+  - **Actual Verification Evidence**: `tests/auth.test.ts` (6 tests passing).
+
+- [x] **TASK-P1-03**
+  - **Requirement IDs**: AUTH-003, INST-004, AUD-001
+  - **Feature**: RBAC, ABAC Engine & Multi-Tenancy Middleware
+  - **Implementation Scope**: Central permission catalog for all 16 roles (`PERMISSIONS`, `DEFAULT_ROLE_PERMISSIONS`), `requireTenant` and `requirePermission` middlewares, automated `AuditEvent` capture.
+  - **Relevant Files**: `server/src/constants/permissions.ts`, `server/src/middleware/tenant.ts`, `server/src/middleware/rbac.ts`, `server/src/middleware/audit.ts`.
+  - **Status**: VERIFIED
+  - **Actual Verification Evidence**: `tests/rbac-tenant.test.ts` (5 tests passing cross-tenant denial and RBAC checks).
+
+- [x] **TASK-P1-04**
+  - **Requirement IDs**: N/A
+  - **Feature**: Seed Database with Multi-Tenant Fixtures & All 16 Roles
+  - **Implementation Scope**: `server/prisma/seed.ts` seeding Alpha Academy and Beta Institute, 16 user role accounts, Grade 10 academic structure, and Math course.
+  - **Relevant Files**: `server/prisma/seed.ts`.
+  - **Status**: VERIFIED
+  - **Actual Verification Evidence**: `npx tsx prisma/seed.ts` executed cleanly without errors.
+
+- [x] **TASK-P1-05**
+  - **Requirement IDs**: N/A
+  - **Feature**: Frontend Client Foundation (Vite, React, Tailwind, TanStack Query, Auth Store)
+  - **Implementation Scope**: React 18 SPA with Vite, Tailwind CSS, TanStack Query, Axios with automatic token refresh interceptor, AuthProvider, role-aware Sidebar, Header, LoginPage with quick 16-role switcher, and 16 distinct role dashboard layouts.
+  - **Relevant Files**: `client/src/*`.
+  - **Status**: VERIFIED
+  - **Actual Verification Evidence**: `npm run build` in `client/` succeeded with zero errors (`dist/index.html` and bundles built in 18s).
+
+---
+
+### Phase 2: Institution & Academic Structure
+- [x] **TASK-P2-01**
+  - **Requirement IDs**: INST-001, INST-002, INST-003, ACAD-001, ACAD-002, ACAD-003
+  - **Feature**: Academic Setup (Programs, Classes, Sections, Subjects, Teacher Assignments)
+  - **Implementation Scope**: Endpoints for academic years, class grades, sections, subjects, and teacher allocations.
+  - **Relevant Files**: `server/src/modules/academic/*`.
+  - **Status**: VERIFIED
+  - **Actual Verification Evidence**: Verified in `tests/academic-sis.test.ts`.
+
+- [x] **TASK-P2-02**
+  - **Requirement IDs**: STU-001, STU-002, STU-003, STU-004, STU-005
+  - **Feature**: Student Information System (SIS) & Parent Linking
+  - **Implementation Scope**: Student roster querying, transactional student account creation, and parent-student relationship linking.
+  - **Relevant Files**: `server/src/modules/students/*`.
+  - **Status**: VERIFIED
+  - **Actual Verification Evidence**: Verified in `tests/academic-sis.test.ts`.
+
+---
+
+### Phase 3: Core LMS
+- [x] **TASK-P3-01**
+  - **Requirement IDs**: LMS-001, LMS-002, LMS-003, LMS-004, LMS-005
+  - **Feature**: Courses, Modules, Lessons & Assignments
+  - **Implementation Scope**: Role-scoped course listings, hierarchical lesson explorer, assignment submissions, rubric grading with feedback, and audit logs.
+  - **Relevant Files**: `server/src/modules/lms/*`.
+  - **Status**: VERIFIED
+  - **Actual Verification Evidence**: `tests/lms.test.ts` (4 tests passing).
+
+---
+
+### Phase 4: Attendance & Communications
+- [ ] **TASK-P4-01**
+  - **Requirement IDs**: ATT-001 to ATT-006, COMM-001, COMM-002
+  - **Feature**: Attendance Management & Communication System
+  - **Implementation Scope**: Daily/subject attendance marking, locking, correction requests, absence alerts, notifications, and secure teacher-parent messaging.
+  - **Relevant Files**: `server/src/modules/attendance/*`, `server/src/modules/communication/*`.
+  - **Status**: IN_PROGRESS
+  - **Implementation update**: Daily and subject-period attendance validate tenant/section/active roster, duplicate students, assigned subject teachers, period bounds, and lock records after submission. Homeroom and subject-period corrections use pending review, maker-checker, tenant scoping, and atomic claims; correction queues are restricted to admin scope or the class teacher's assigned sections. Parent explanations are pending EXCUSED corrections, create in-app alerts for assigned teachers, and require authorized class teacher/admin review. Attendance UI includes daily marking, subject rosters, linked guardian/student history, corrections, and a 90-day summary (10% absence of at least 10 records; excused days excluded). Staff leave requests/reviews are tenant-scoped and audited. Communication pages are connected to announcements, messaging, and notifications APIs. Zod validation covers dates, period and batch bounds, leave ranges, bodies, and route parameters.
+  - **Remaining acceptance criteria**: Apply the subject-period migration only to a confirmed isolated test database; database-backed persistence, cross-tenant, role, and full UI workflow verification have not run. Scheduled threshold alerts and external/realtime notification delivery are not configured.
+  - **Relevant Files**: `server/prisma/schema.prisma`, `server/prisma/migrations/20261024120000_subject_period_attendance/migration.sql`, `server/src/modules/attendance/*`, `server/src/modules/communication/*`, `server/src/modules/hr/leave.*`, `client/src/pages/AttendancePage.tsx`, `client/src/pages/CommunicationPage.tsx`, `client/src/pages/LeavePage.tsx`, `server/tests/attendance-communication.test.ts`.
+  - **Actual Verification Evidence**: `npx prisma validate` passed and Prisma Client generation succeeded. `npm run build` passed in both `server/` and `client/`. `npx vitest run tests/attendance-schemas.test.ts tests/leave-schemas.test.ts tests/exam-schemas.test.ts tests/finance-schemas.test.ts` passed (15 tests in 4 files). Database integration tests were not run: `.env` identifies database `lms2`, not confirmed as an isolated test database, and `localhost:5432` was unreachable. Integration cases for subject-period persistence/correction, guardian explanations, and leave approval were added but not executed.
+  - **Blocker or Next Action**: After confirming a dedicated test database is available, apply the migration and run Phase 4 API persistence, role, tenant-isolation, and UI workflows; fix any resulting failures.
+
+---
+
+### Phase 5: Examinations & Results
+- [ ] **TASK-P5-01**
+  - **Requirement IDs**: EXAM-001 to EXAM-006
+  - **Feature**: Examination Cycles, Marks Entry, Grade Changes & Report Cards
+  - **Implementation Scope**: Exam timetables, marks entry with validation, Maker-Checker grade change workflow, automated GPA/rank calculation, published report cards.
+  - **Status**: IN_PROGRESS
+  - **Implemented**: Mounted the previously unmounted exams module at `/api/v1/exams`; added Zod-validated session, schedule, marks, grade-change, review, publication, and report-card routes. Session/subject/roster queries are tenant-scoped; teachers can enter marks only for assigned sections; submitted marks cannot be directly overwritten; grade corrections are reasoned, pre-publication only, maker-checker approved, atomically claimed, and protected from stale updates. Publication requires schedules, complete assigned rosters, and no pending corrections, then creates report cards with GPA, letter grade, and rank. Parent/student report cards are scoped to linked profiles and published cards.
+  - **Relevant Files**: `server/src/modules/exams/*`, `server/src/app.ts`, `server/tests/exam-schemas.test.ts`, `ARCHITECTURE.md`.
+  - **Database Changes**: None in this iteration; existing examination schema reused.
+  - **Dependencies**: TASK-P1 schema and roles; PostgreSQL required for workflow verification.
+  - **Acceptance Criteria**: Only tenant sessions and schedules are visible/mutable; assigned teachers may enter marks once; out-of-range marks are rejected; grade correction cannot be self-approved or applied after publication; publication refuses incomplete marks or pending changes; students/parents see only authorized published report cards.
+  - **Required Tests**: Existing integration tests for tenant isolation, mark entry, grade correction, self-approval, and publication; pure schema tests.
+  - **Actual Verification Evidence**: `npm run build` in `server/` passed. `npx vitest run tests/exam-schemas.test.ts` passed (4 tests). Database integration tests are blocked by PostgreSQL being unavailable at `localhost:5432`.
+  - **Blocker or Next Action**: Add seeded end-to-end exam workflow tests and a usable examination/report-card client page; verify with PostgreSQL when available. Institution-specific grading scale, exam seating, and printable verified report cards remain out of scope for this API increment.
+
+---
+
+### Phase 6: Fees & Financial Management
+- [ ] **TASK-P6-01**
+  - **Requirement IDs**: FIN-001 to FIN-007
+  - **Feature**: Invoices, Payments, Maker-Checker Waivers & Ledgers
+  - **Implementation Scope**: Fee structure setup, student fee invoicing, counter collection (Cash/Cheque/Bank/Online), receipt generation, dual-approval waivers (Clerk Maker → Finance Head Checker), and ledger entries.
+  - **Status**: IN_PROGRESS
+  - **Implemented**: Added a tenant-scoped fee structure, invoice generation, invoice listing, cash/cheque/bank payment collection, waiver request/review, and ledger API. Payment and approved waiver posting update invoice balances and create balanced double-entry ledger rows within serializable transactions. Online payment methods are rejected because provider verification is not integrated. Parent and student invoice lists are limited to linked profiles.
+  - **Relevant Files**: `server/src/modules/finance/*`, `server/src/app.ts`, `server/tests/finance-schemas.test.ts`, `ARCHITECTURE.md`.
+  - **Database Changes**: None in this iteration; reuses current schema. Refund entity/workflow is not modeled yet.
+  - **Dependencies**: Existing fee and ledger schema; PostgreSQL needed for transaction and concurrency verification.
+  - **Acceptance Criteria**: Invoice generation is tenant/class scoped and skips existing invoices; collection cannot exceed balance; online confirmations are rejected; payments and approved waivers update ledger with balanced debits and credits; waiver requester cannot approve own request; parent/student invoice data is scoped.
+  - **Required Tests**: Schema tests and DB integration for invoice generation idempotence, partial/full payment, overspend, balanced ledger, tenant isolation, and maker-checker/concurrency.
+  - **Actual Verification Evidence**: `npm run build` in `server/` passed. `npx vitest run tests/exam-schemas.test.ts tests/finance-schemas.test.ts` passed (7 tests). Finance database tests are not yet implemented; PostgreSQL is unavailable.
+  - **Blocker or Next Action**: Add transaction integration tests, refund workflow/schema, and finance UI; run against PostgreSQL when available. Do not claim refunds or online provider payments are complete.
+
+---
+
+### Phase 7: Auxiliary Modules
+- [ ] **TASK-P7-01**
+  - **Requirement IDs**: Master Prompt Phase 7
+  - **Feature**: HR, Library, Transport, Hostel, Counseling Modules
+  - **Implementation Scope**: Functional HR, Library, Transport, Hostel, and Counseling modules; advanced reporting and analytics; documented permissions and scope. Master-prompt acceptance includes staff leaves/payroll, catalog/circulation, transport routes/allocations, hostel beds/gate passes, and restricted counseling records.
+  - **Status**: NOT_STARTED
+
+---
+
+### Phase 8: Security & Quality Assurance
+- [ ] **TASK-P8-01**
+  - **Requirement IDs**: Master Prompt Phase 8
+  - **Feature**: Security and quality assurance
+  - **Implementation Scope**: Cross-tenant access testing; role-permission matrix verification; business workflow tests; performance checks; accessibility review; dependency checks; backup/restoration tests; error handling/recovery tests; documented verification report with unresolved issues.
+  - **Status**: NOT_STARTED
+
+### Phase 9: Deployment Readiness
+- [ ] **TASK-P9-01**
+  - **Requirement IDs**: Master Prompt Phase 9
+  - **Feature**: Production and deployment readiness
+  - **Implementation Scope**: Production configuration; secure environment setup; CI/CD; database migration strategy; backup/restoration instructions; monitoring/health checks; deployment and rollback instructions; administrator/user documentation; documented remaining prerequisites.
+  - **Status**: NOT_STARTED

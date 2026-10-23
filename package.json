@@ -1,0 +1,32 @@
+{
+  "name": "school-lms",
+  "version": "1.0.0",
+  "description": "Enterprise-grade, Multi-tenant School LMS and Management Portal",
+  "private": true,
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client run dev",
+    "build:server": "npm --prefix server run build",
+    "build:client": "npm --prefix client run build",
+    "test:server": "npm --prefix server test",
+    "db:migrate": "npm --prefix server run db:migrate",
+    "db:seed": "npm --prefix server run db:seed",
+    "db:studio": "npm --prefix server run db:studio"
+  },
+  "keywords": [
+    "lms",
+    "school-management",
+    "react",
+    "nodejs",
+    "express",
+    "prisma",
+    "postgresql",
+    "typescript"
+  ],
+  "author": "Antigravity Local Engineer",
+  "license": "UNLICENSED"
+}
