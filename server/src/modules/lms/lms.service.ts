@@ -92,6 +92,17 @@ export class LmsService {
   }
 
   static async createCourse(institutionId: string, data: any) {
+    const [subject, section, teacher, term] = await Promise.all([
+      prisma.subject.findFirst({ where: { id: data.subjectId, institutionId } }),
+      prisma.section.findFirst({ where: { id: data.sectionId, classGrade: { institutionId } } }),
+      prisma.teacherProfile.findFirst({ where: { id: data.teacherId, user: { institutionId } } }),
+      prisma.academicTerm.findFirst({ where: { id: data.academicTermId, academicYear: { institutionId } } }),
+    ]);
+
+    if (!subject || !section || !teacher || !term) {
+      throw { status: 404, message: 'Referenced academic entities not found in this institution' };
+    }
+
     return prisma.course.create({
       data: {
         institutionId,
@@ -107,7 +118,14 @@ export class LmsService {
     });
   }
 
-  static async createModule(data: any) {
+  static async createModule(institutionId: string, data: any) {
+    const course = await prisma.course.findFirst({
+      where: { id: data.courseId, institutionId },
+    });
+    if (!course) {
+      throw { status: 404, message: 'Course not found in this institution' };
+    }
+
     return prisma.courseModule.create({
       data: {
         courseId: data.courseId,
@@ -118,7 +136,14 @@ export class LmsService {
     });
   }
 
-  static async createLesson(data: any) {
+  static async createLesson(institutionId: string, data: any) {
+    const module = await prisma.courseModule.findFirst({
+      where: { id: data.moduleId, course: { institutionId } },
+    });
+    if (!module) {
+      throw { status: 404, message: 'Module not found in this institution' };
+    }
+
     return prisma.lesson.create({
       data: {
         moduleId: data.moduleId,
@@ -131,7 +156,14 @@ export class LmsService {
     });
   }
 
-  static async createAssignment(data: any) {
+  static async createAssignment(institutionId: string, data: any) {
+    const course = await prisma.course.findFirst({
+      where: { id: data.courseId, institutionId },
+    });
+    if (!course) {
+      throw { status: 404, message: 'Course not found in this institution' };
+    }
+
     return prisma.assignment.create({
       data: {
         courseId: data.courseId,
@@ -145,21 +177,21 @@ export class LmsService {
     });
   }
 
-  static async submitAssignment(assignmentId: string, user: AuthenticatedUser, data: any) {
-    const studentProfile = await prisma.studentProfile.findUnique({
-      where: { userId: user.id },
+  static async submitAssignment(assignmentId: string, user: AuthenticatedUser, data: any, institutionId: string) {
+    const studentProfile = await prisma.studentProfile.findFirst({
+      where: { userId: user.id, institutionId },
     });
 
     if (!studentProfile) {
-      throw { status: 403, message: 'Only enrolled students can submit assignments' };
+      throw { status: 403, message: 'Only enrolled students of this institution can submit assignments' };
     }
 
-    const assignment = await prisma.assignment.findUnique({
-      where: { id: assignmentId },
+    const assignment = await prisma.assignment.findFirst({
+      where: { id: assignmentId, course: { institutionId } },
     });
 
     if (!assignment) {
-      throw { status: 404, message: 'Assignment not found' };
+      throw { status: 404, message: 'Assignment not found in this institution' };
     }
 
     const isLate = new Date() > assignment.dueDate;
@@ -190,7 +222,15 @@ export class LmsService {
     });
   }
 
-  static async gradeSubmission(submissionId: string, graderUserId: string, data: any) {
+  static async gradeSubmission(submissionId: string, graderUserId: string, data: any, institutionId: string) {
+    const submission = await prisma.assignmentSubmission.findFirst({
+      where: { id: submissionId, assignment: { course: { institutionId } } },
+    });
+
+    if (!submission) {
+      throw { status: 404, message: 'Submission not found in this institution' };
+    }
+
     return prisma.assignmentSubmission.update({
       where: { id: submissionId },
       data: {

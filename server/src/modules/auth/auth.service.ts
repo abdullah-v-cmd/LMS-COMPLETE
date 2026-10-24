@@ -210,7 +210,12 @@ export class AuthService {
     };
   }
 
-  static async logout(rawRefreshToken?: string, userId?: string) {
+  static async logout(rawRefreshToken?: string, userId?: string, accessToken?: string) {
+    if (accessToken) {
+      const { redis } = await import('../../utils/redis');
+      await redis.blacklistToken(accessToken, 900);
+    }
+
     if (rawRefreshToken) {
       const hashed = hashToken(rawRefreshToken);
       await prisma.refreshToken.updateMany({

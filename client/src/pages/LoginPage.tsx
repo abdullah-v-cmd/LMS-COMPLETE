@@ -56,12 +56,12 @@ export const LoginPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-        <div className="w-12 h-12 bg-primary-600 rounded-xl flex items-center justify-center text-white mx-auto shadow-lg shadow-primary-500/30">
+        <div className="w-12 h-12 bg-primary-600 rounded-xl flex items-center justify-center text-white mx-auto shadow-lg shadow-primary-500/30" aria-hidden="true">
           <School className="w-7 h-7" />
         </div>
-        <h2 className="mt-4 text-2xl font-bold tracking-tight text-white">
+        <h1 className="mt-4 text-2xl font-bold tracking-tight text-white">
           Sign In to Portal
-        </h2>
+        </h1>
         <p className="mt-1 text-sm text-slate-400">
           Advanced School LMS & Management System
         </p>
@@ -70,20 +70,23 @@ export const LoginPage: React.FC = () => {
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-6 shadow-xl rounded-2xl sm:px-10 border border-slate-100">
           {error && (
-            <div className="mb-4 p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-lg flex items-center gap-2">
-              <ShieldAlert className="w-4 h-4 shrink-0 text-rose-500" />
+            <div role="alert" aria-live="assertive" className="mb-4 p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-lg flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 shrink-0 text-rose-500" aria-hidden="true" />
               <span>{error}</span>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+              <label htmlFor="usernameOrEmail" className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
                 Email or Username
               </label>
               <input
+                id="usernameOrEmail"
+                name="usernameOrEmail"
                 type="text"
                 required
+                autoComplete="username"
                 value={usernameOrEmail}
                 onChange={(e) => setUsernameOrEmail(e.target.value)}
                 placeholder="e.g. principal@alpha.edu"
@@ -92,12 +95,15 @@ export const LoginPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+              <label htmlFor="password" className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
                 Password
               </label>
               <input
+                id="password"
+                name="password"
                 type="password"
                 required
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••••••"
@@ -108,14 +114,15 @@ export const LoginPage: React.FC = () => {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2.5 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700 focus:ring-4 focus:ring-primary-500/20 disabled:opacity-50 transition shadow-sm"
+              aria-label={isSubmitting ? 'Signing in, please wait' : 'Sign in to account'}
+              className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2.5 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700 focus:ring-4 focus:ring-primary-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:opacity-50 transition shadow-sm"
             >
               {isSubmitting ? (
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" aria-hidden="true"></div>
               ) : (
                 <>
                   <span>Sign In</span>
-                  <ArrowRight className="w-4 h-4" />
+                  <ArrowRight className="w-4 h-4" aria-hidden="true" />
                 </>
               )}
             </button>
@@ -123,16 +130,17 @@ export const LoginPage: React.FC = () => {
 
           <div className="mt-6 pt-6 border-t border-slate-100">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-3">
-              <UserCheck className="w-4 h-4 text-primary-600" />
+              <UserCheck className="w-4 h-4 text-primary-600" aria-hidden="true" />
               <span>Quick Demo Sign-in (16 Roles)</span>
             </div>
-            <div className="grid grid-cols-2 gap-1.5 max-h-48 overflow-y-auto pr-1">
+            <div className="grid grid-cols-2 gap-1.5 max-h-48 overflow-y-auto pr-1" aria-label="Demo role accounts switcher">
               {DEMO_ACCOUNTS.map((acc) => (
                 <button
                   key={acc.label}
                   type="button"
                   onClick={() => handleSelectDemo(acc)}
-                  className="text-left p-1.5 rounded text-[11px] bg-slate-50 hover:bg-primary-50 hover:text-primary-700 border border-slate-200 transition truncate"
+                  aria-label={`Select ${acc.label} role: ${acc.user}`}
+                  className="text-left p-1.5 rounded text-[11px] bg-slate-50 hover:bg-primary-50 hover:text-primary-700 border border-slate-200 transition truncate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
                   title={`${acc.label} (${acc.role}): ${acc.user}`}
                 >
                   <span className="font-semibold block truncate">{acc.label}</span>

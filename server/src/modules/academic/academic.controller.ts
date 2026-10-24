@@ -42,7 +42,7 @@ export class AcademicController {
 
   static async createSection(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      const section = await AcademicService.createSection(req.body);
+      const section = await AcademicService.createSection(req.institutionId!, req.body);
       return sendSuccess(res, section, 201);
     } catch (error) {
       next(error);
@@ -69,7 +69,7 @@ export class AcademicController {
 
   static async assignTeacher(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      const assignment = await AcademicService.assignTeacher(req.body);
+      const assignment = await AcademicService.assignTeacher(req.institutionId!, req.body);
       return sendSuccess(res, assignment, 201);
     } catch (error) {
       next(error);

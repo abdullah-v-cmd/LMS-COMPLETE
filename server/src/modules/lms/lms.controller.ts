@@ -33,7 +33,7 @@ export class LmsController {
 
   static async createModule(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      const module = await LmsService.createModule(req.body);
+      const module = await LmsService.createModule(req.institutionId!, req.body);
       return sendSuccess(res, module, 201);
     } catch (error) {
       next(error);
@@ -42,7 +42,7 @@ export class LmsController {
 
   static async createLesson(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      const lesson = await LmsService.createLesson(req.body);
+      const lesson = await LmsService.createLesson(req.institutionId!, req.body);
       return sendSuccess(res, lesson, 201);
     } catch (error) {
       next(error);
@@ -51,7 +51,7 @@ export class LmsController {
 
   static async createAssignment(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      const assignment = await LmsService.createAssignment(req.body);
+      const assignment = await LmsService.createAssignment(req.institutionId!, req.body);
       return sendSuccess(res, assignment, 201);
     } catch (error) {
       next(error);
@@ -60,7 +60,7 @@ export class LmsController {
 
   static async submitAssignment(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      const submission = await LmsService.submitAssignment(req.params.id, req.user!, req.body);
+      const submission = await LmsService.submitAssignment(req.params.id, req.user!, req.body, req.institutionId!);
       return sendSuccess(res, submission, 200);
     } catch (error) {
       next(error);
@@ -69,7 +69,7 @@ export class LmsController {
 
   static async gradeSubmission(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      const graded = await LmsService.gradeSubmission(req.params.id, req.user!.id, req.body);
+      const graded = await LmsService.gradeSubmission(req.params.id, req.user!.id, req.body, req.institutionId!);
       return sendSuccess(res, graded, 200);
     } catch (error) {
       next(error);

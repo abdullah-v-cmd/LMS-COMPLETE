@@ -23,6 +23,8 @@ import hostelRoutes from './modules/hostel/hostel.routes';
 import counselingRoutes from './modules/counseling/counseling.routes';
 import analyticsRoutes from './modules/analytics/analytics.routes';
 
+import { apiRateLimiter } from './middleware/rateLimit';
+
 export const createApp = () => {
   const app = express();
 
@@ -43,6 +45,9 @@ export const createApp = () => {
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+  // General rate limiting across all API endpoints
+  app.use(env.API_PREFIX, apiRateLimiter);
+
   // Health check endpoint
   app.get(`${env.API_PREFIX}/health`, (req: Request, res: Response) => {
     return sendSuccess(res, {
@@ -53,11 +58,19 @@ export const createApp = () => {
     });
   });
 
-  // Readiness check includes the database; never return connection details.
+  // Readiness check includes PostgreSQL and Redis; never return connection details.
   app.get(`${env.API_PREFIX}/health/ready`, async (_req: Request, res: Response) => {
     try {
       await prisma.$queryRaw`SELECT 1`;
-      return sendSuccess(res, { status: 'READY', service: 'school-lms-api', database: 'reachable', timestamp: new Date().toISOString() });
+      const { redis } = await import('./utils/redis');
+      const redisHealthy = await redis.isHealthy();
+      return sendSuccess(res, {
+        status: 'READY',
+        service: 'school-lms-api',
+        database: 'reachable',
+        redis: redisHealthy ? 'connected' : 'fallback-active',
+        timestamp: new Date().toISOString(),
+      });
     } catch {
       return sendError(res, 503, 'NOT_READY', 'A required service is unavailable');
     }

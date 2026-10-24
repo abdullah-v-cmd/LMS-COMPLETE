@@ -182,12 +182,12 @@ export const Sidebar: React.FC = () => {
   );
 
   return (
-    <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 min-h-screen">
+    <aside aria-label="Main Navigation" className="w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 min-h-screen">
       <div className="h-16 flex items-center px-6 border-b border-slate-800">
         <span className="text-white font-bold tracking-tight text-lg">ANTIGRAVITY LMS</span>
       </div>
 
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+      <nav aria-label="Portal Navigation Links" className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         {filteredNav.map((item) => {
           const Icon = item.icon;
           return (
@@ -195,14 +195,14 @@ export const Sidebar: React.FC = () => {
               key={item.to}
               to={item.to}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${
+                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 ${
                   isActive
                     ? 'bg-primary-600 text-white font-semibold'
                     : 'text-slate-300 hover:bg-slate-800 hover:text-white'
                 }`
               }
             >
-              <Icon className="w-4 h-4 shrink-0" />
+              <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />
               <span>{item.name}</span>
             </NavLink>
           );

@@ -3,6 +3,7 @@ import { AuthenticatedRequest, AuthenticatedUser } from '../types';
 import { verifyAccessToken } from '../utils/jwt';
 import { sendError } from '../utils/response';
 import { prisma } from '../utils/prisma';
+import { redis } from '../utils/redis';
 
 export const requireAuth = async (
   req: AuthenticatedRequest,
@@ -19,6 +20,10 @@ export const requireAuth = async (
 
   if (!payload) {
     return sendError(res, 401, 'INVALID_TOKEN', 'Access token is invalid or expired');
+  }
+
+  if (await redis.isTokenBlacklisted(token)) {
+    return sendError(res, 401, 'TOKEN_REVOKED', 'Access token has been revoked');
   }
 
   // Verify user still exists and is active in database

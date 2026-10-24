@@ -25,6 +25,8 @@ export const envSchema = z.object({
     if (!Number.isInteger(size) || size < 1 || size > 1024) { ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'MAX_FILE_SIZE_MB must be an integer from 1 to 1024' }); return z.NEVER; }
     return size;
   }),
+  REDIS_URL: z.string().default('redis://localhost:6379'),
+  REDIS_ENABLED: z.string().default('true').transform((val) => val !== 'false'),
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'http', 'verbose', 'debug', 'silly']).default('info'),
 }).superRefine((config, ctx) => {
   if (config.NODE_ENV !== 'production') return;

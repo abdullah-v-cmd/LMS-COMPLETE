@@ -47,7 +47,14 @@ export class AcademicService {
     });
   }
 
-  static async createSection(data: any) {
+  static async createSection(institutionId: string, data: any) {
+    const classGrade = await prisma.classGrade.findFirst({
+      where: { id: data.classGradeId, institutionId },
+    });
+    if (!classGrade) {
+      throw { status: 404, message: 'Class grade not found in this institution' };
+    }
+
     return prisma.section.create({
       data: {
         classGradeId: data.classGradeId,
@@ -76,7 +83,18 @@ export class AcademicService {
     });
   }
 
-  static async assignTeacher(data: any) {
+  static async assignTeacher(institutionId: string, data: any) {
+    const [teacher, subject, section, term] = await Promise.all([
+      prisma.teacherProfile.findFirst({ where: { id: data.teacherId, user: { institutionId } } }),
+      prisma.subject.findFirst({ where: { id: data.subjectId, institutionId } }),
+      prisma.section.findFirst({ where: { id: data.sectionId, classGrade: { institutionId } } }),
+      prisma.academicTerm.findFirst({ where: { id: data.academicTermId, academicYear: { institutionId } } }),
+    ]);
+
+    if (!teacher || !subject || !section || !term) {
+      throw { status: 404, message: 'One or more assigned academic entities not found in this institution' };
+    }
+
     return prisma.teacherAssignment.create({
       data: {
         teacherId: data.teacherId,

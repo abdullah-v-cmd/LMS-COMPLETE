@@ -72,6 +72,13 @@ export class StudentsService {
   }
 
   static async create(institutionId: string, data: any) {
+    const section = await prisma.section.findFirst({
+      where: { id: data.sectionId, classGrade: { institutionId } },
+    });
+    if (!section) {
+      throw { status: 404, message: 'Section not found in this institution' };
+    }
+
     const passwordHash = await hashPassword(data.password);
 
     return prisma.$transaction(async (tx) => {
@@ -119,7 +126,15 @@ export class StudentsService {
     });
 
     if (!student) {
-      throw { status: 404, message: 'Student record not found' };
+      throw { status: 404, message: 'Student record not found in this institution' };
+    }
+
+    const parent = await prisma.parentProfile.findFirst({
+      where: { id: data.parentId, user: { institutionId } },
+    });
+
+    if (!parent) {
+      throw { status: 404, message: 'Parent record not found in this institution' };
     }
 
     return prisma.studentParentRelation.create({
