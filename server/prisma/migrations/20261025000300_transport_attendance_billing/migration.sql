@@ -1,0 +1,18 @@
+ALTER TABLE "student_fee_invoices" ALTER COLUMN "feeStructureId" DROP NOT NULL;
+ALTER TABLE "student_fee_invoices" ADD COLUMN "transportChargeId" TEXT;
+CREATE UNIQUE INDEX "student_fee_invoices_transportChargeId_key" ON "student_fee_invoices"("transportChargeId");
+CREATE TABLE "transport_attendance" ("id" TEXT NOT NULL, "institutionId" TEXT NOT NULL, "allocationId" TEXT NOT NULL, "routeId" TEXT NOT NULL, "studentId" TEXT NOT NULL, "serviceDate" DATE NOT NULL, "status" TEXT NOT NULL DEFAULT 'PRESENT', "remarks" TEXT, "markedByUserId" TEXT NOT NULL, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL, CONSTRAINT "transport_attendance_pkey" PRIMARY KEY ("id"));
+CREATE UNIQUE INDEX "transport_attendance_allocationId_serviceDate_key" ON "transport_attendance"("allocationId", "serviceDate");
+CREATE INDEX "transport_attendance_institutionId_routeId_serviceDate_idx" ON "transport_attendance"("institutionId", "routeId", "serviceDate");
+ALTER TABLE "transport_attendance" ADD CONSTRAINT "transport_attendance_institutionId_fkey" FOREIGN KEY ("institutionId") REFERENCES "institutions"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "transport_attendance" ADD CONSTRAINT "transport_attendance_allocationId_fkey" FOREIGN KEY ("allocationId") REFERENCES "student_transport_allocations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "transport_attendance" ADD CONSTRAINT "transport_attendance_routeId_fkey" FOREIGN KEY ("routeId") REFERENCES "transport_routes"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "transport_attendance" ADD CONSTRAINT "transport_attendance_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "student_profiles"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+CREATE TABLE "transport_monthly_charges" ("id" TEXT NOT NULL, "institutionId" TEXT NOT NULL, "allocationId" TEXT NOT NULL, "routeId" TEXT NOT NULL, "studentId" TEXT NOT NULL, "period" VARCHAR(7) NOT NULL, "amount" DECIMAL(12,2) NOT NULL, "createdByUserId" TEXT NOT NULL, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "transport_monthly_charges_pkey" PRIMARY KEY ("id"));
+CREATE UNIQUE INDEX "transport_monthly_charges_allocationId_period_key" ON "transport_monthly_charges"("allocationId", "period");
+CREATE INDEX "transport_monthly_charges_institutionId_period_idx" ON "transport_monthly_charges"("institutionId", "period");
+ALTER TABLE "transport_monthly_charges" ADD CONSTRAINT "transport_monthly_charges_institutionId_fkey" FOREIGN KEY ("institutionId") REFERENCES "institutions"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "transport_monthly_charges" ADD CONSTRAINT "transport_monthly_charges_allocationId_fkey" FOREIGN KEY ("allocationId") REFERENCES "student_transport_allocations"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "transport_monthly_charges" ADD CONSTRAINT "transport_monthly_charges_routeId_fkey" FOREIGN KEY ("routeId") REFERENCES "transport_routes"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "transport_monthly_charges" ADD CONSTRAINT "transport_monthly_charges_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "student_profiles"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "student_fee_invoices" ADD CONSTRAINT "student_fee_invoices_transportChargeId_fkey" FOREIGN KEY ("transportChargeId") REFERENCES "transport_monthly_charges"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allocationSchema, routeSchema, vehicleSchema, stopSchema, trackingLogSchema, driverAssignmentSchema } from '../src/modules/transport/transport.schemas';
+import { allocationSchema, routeSchema, vehicleSchema, stopSchema, trackingLogSchema, driverAssignmentSchema, transportAttendanceSchema, transportChargeSchema } from '../src/modules/transport/transport.schemas';
 
 describe('Transport request validation', () => {
   it('requires route stops and money at currency precision', () => {
@@ -23,5 +23,12 @@ describe('Transport request validation', () => {
     expect(vehicleSchema.safeParse({ routeId, vehicleNumber: 'ABC-123', driverName: 'Driver Name', driverPhone: '+123456789', capacity: 0 }).success).toBe(false);
     expect(allocationSchema.safeParse({ routeId, studentId, pickupStop: 'Main street' }).success).toBe(true);
     expect(allocationSchema.safeParse({ routeId, studentId, pickupStop: '' }).success).toBe(false);
+  });
+  it('validates attendance service dates and monthly charge periods', () => {
+    const allocationId = 'a0184c98-7f09-4b16-a22c-95b8dbf2a010';
+    expect(transportAttendanceSchema.safeParse({ allocationId, serviceDate: '2026-10-24', status: 'PRESENT' }).success).toBe(true);
+    expect(transportAttendanceSchema.safeParse({ allocationId, serviceDate: '2026-02-30', status: 'PRESENT' }).success).toBe(false);
+    expect(transportChargeSchema.safeParse({ allocationId, period: '2026-10', dueDate: '2026-10-31' }).success).toBe(true);
+    expect(transportChargeSchema.safeParse({ allocationId, period: '2026-13', dueDate: '2026-10-31' }).success).toBe(false);
   });
 });

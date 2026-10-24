@@ -1,4 +1,5 @@
-import { Prisma, UserRole } from '@prisma/client';
+import { InvoiceStatus, Prisma, UserRole } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import { prisma } from '../../utils/prisma';
 import { AuthenticatedUser } from '../../types';
 
@@ -60,7 +61,15 @@ export class TransportService {
 
   static async trackingLogs(institutionId: string, user: AuthenticatedUser) {
     const studentIds = await this.linkedStudentIds(institutionId, user);
-    return prisma.transportVehicleTrackingLog.findMany({ where: { institutionId, ...(studentIds !== undefined ? { vehicle: { route: { allocations: { some: { studentId: { in: studentIds } } } } } : {}) }, include: { vehicle: { select: { id: true, vehicleNumber: true, route: { select: { name: true } } } } }, orderBy: { recordedAt: 'desc' }, take: 500 });
+    return prisma.transportVehicleTrackingLog.findMany({
+      where: {
+        institutionId,
+        ...(studentIds !== undefined ? { vehicle: { route: { allocations: { some: { studentId: { in: studentIds } } } } } } : {}),
+      },
+      include: { vehicle: { select: { id: true, vehicleNumber: true, route: { select: { name: true } } } } },
+      orderBy: { recordedAt: 'desc' },
+      take: 500,
+    });
   }
 
   static async recordTrackingLog(institutionId: string, userId: string, data: { vehicleId: string; latitude: number; longitude: number; recordedAt: string; source: string }) {
@@ -71,6 +80,37 @@ export class TransportService {
   static async incidents(institutionId: string, user: AuthenticatedUser) {
     const studentIds = await this.linkedStudentIds(institutionId, user);
     return prisma.transportIncident.findMany({ where: { institutionId, ...(studentIds !== undefined ? { studentId: { in: studentIds } } : {}) }, include: { route: { select: { name: true } }, vehicle: { select: { vehicleNumber: true } }, student: { select: { admissionNumber: true } } }, orderBy: { occurredAt: 'desc' } });
+  }
+
+  static async attendance(institutionId: string, user: AuthenticatedUser) {
+    const studentIds = await this.linkedStudentIds(institutionId, user);
+    return prisma.transportAttendance.findMany({ where: { institutionId, ...(studentIds !== undefined ? { studentId: { in: studentIds } } : {}) }, include: { route: { select: { name: true } }, student: { select: { admissionNumber: true, user: { select: { firstName: true, lastName: true } } } } }, orderBy: [{ serviceDate: 'desc' }, { createdAt: 'desc' }], take: 500 });
+  }
+
+  static async markAttendance(institutionId: string, userId: string, data: { allocationId: string; serviceDate: string; status: string; remarks?: string }) {
+    return prisma.$transaction(async (tx) => {
+      const allocation = await tx.studentTransportAllocation.findFirst({ where: { id: data.allocationId, route: { institutionId } }, select: { id: true, routeId: true, studentId: true } });
+      if (!allocation) throw { status: 404, message: 'Transport allocation not found in this institution' };
+      const serviceDate = new Date(`${data.serviceDate}T00:00:00.000Z`);
+      return tx.transportAttendance.upsert({ where: { allocationId_serviceDate: { allocationId: allocation.id, serviceDate } }, create: { institutionId, allocationId: allocation.id, routeId: allocation.routeId, studentId: allocation.studentId, serviceDate, status: data.status, remarks: data.remarks, markedByUserId: userId }, update: { status: data.status, remarks: data.remarks, markedByUserId: userId } });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  static async generateMonthlyCharge(institutionId: string, userId: string, data: { allocationId: string; period: string; dueDate: string }) {
+    return prisma.$transaction(async (tx) => {
+      const allocation = await tx.studentTransportAllocation.findFirst({ where: { id: data.allocationId, route: { institutionId }, student: { status: 'ENROLLED' } }, include: { route: { select: { id: true, name: true, monthlyFee: true } } } });
+      if (!allocation) throw { status: 404, message: 'Active transport allocation not found in this institution' };
+      const existing = await tx.transportMonthlyCharge.findUnique({ where: { allocationId_period: { allocationId: allocation.id, period: data.period } }, include: { invoice: true } });
+      if (existing) return { charge: existing, invoice: existing.invoice, created: false };
+      const dueDate = new Date(`${data.dueDate}T23:59:59.999Z`);
+      const charge = await tx.transportMonthlyCharge.create({ data: { institutionId, allocationId: allocation.id, routeId: allocation.routeId, studentId: allocation.studentId, period: data.period, amount: allocation.route.monthlyFee, createdByUserId: userId } });
+      const invoice = await tx.studentFeeInvoice.create({ data: { institutionId, studentId: allocation.studentId, transportChargeId: charge.id, invoiceNumber: `TRN-${randomUUID().replace(/-/g, '').slice(0, 16).toUpperCase()}`, totalAmount: allocation.route.monthlyFee, balanceAmount: allocation.route.monthlyFee, status: InvoiceStatus.UNPAID, dueDate } });
+      await tx.financialLedgerEntry.createMany({ data: [
+        { institutionId, accountCode: '1100-ACCOUNTS-RECEIVABLE', debitAmount: allocation.route.monthlyFee, referenceType: 'TRANSPORT_INVOICE', referenceId: invoice.id, description: `Transport ${data.period}: ${allocation.route.name}`, createdByUserId: userId },
+        { institutionId, accountCode: '4010-TRANSPORT-REVENUE', creditAmount: allocation.route.monthlyFee, referenceType: 'TRANSPORT_INVOICE', referenceId: invoice.id, description: `Transport ${data.period}: ${allocation.route.name}`, createdByUserId: userId },
+      ] });
+      return { charge, invoice, created: true };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   private static async linkedStudentIds(institutionId: string, user: AuthenticatedUser): Promise<string[] | undefined> {

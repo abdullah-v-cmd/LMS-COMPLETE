@@ -6,7 +6,7 @@ import { validateRequest } from '../../middleware/validate';
 import { logAuditEvent } from '../../middleware/audit';
 import { PERMISSIONS } from '../../constants/permissions';
 import { TransportController } from './transport.controller';
-import { allocationSchema, routeSchema, vehicleSchema, stopSchema, vehicleDocumentSchema, driverAssignmentSchema, trackingLogSchema, transportIncidentSchema } from './transport.schemas';
+import { allocationSchema, routeSchema, vehicleSchema, stopSchema, vehicleDocumentSchema, driverAssignmentSchema, trackingLogSchema, transportIncidentSchema, transportAttendanceSchema, transportChargeSchema } from './transport.schemas';
 
 const router = Router();
 router.use(requireAuth, requireTenant);
@@ -14,6 +14,7 @@ router.get('/routes', requirePermission(PERMISSIONS.TRANSPORT_READ), TransportCo
 router.get('/allocations', requirePermission(PERMISSIONS.TRANSPORT_READ), TransportController.allocations);
 router.get('/tracking-logs', requirePermission(PERMISSIONS.TRANSPORT_READ), TransportController.trackingLogs);
 router.get('/incidents', requirePermission(PERMISSIONS.TRANSPORT_READ), TransportController.incidents);
+router.get('/attendance', requirePermission(PERMISSIONS.TRANSPORT_READ), TransportController.attendance);
 router.post('/routes', requirePermission(PERMISSIONS.TRANSPORT_MANAGE), validateRequest({ body: routeSchema }), logAuditEvent('TRANSPORT_ROUTE_CREATED', 'TransportRoute'), TransportController.createRoute);
 router.post('/vehicles', requirePermission(PERMISSIONS.TRANSPORT_MANAGE), validateRequest({ body: vehicleSchema }), logAuditEvent('TRANSPORT_VEHICLE_CREATED', 'TransportVehicle'), TransportController.createVehicle);
 router.post('/allocations', requirePermission(PERMISSIONS.TRANSPORT_MANAGE), validateRequest({ body: allocationSchema }), logAuditEvent('TRANSPORT_STUDENT_ALLOCATED', 'StudentTransportAllocation'), TransportController.allocate);
@@ -22,4 +23,6 @@ router.post('/vehicle-documents', requirePermission(PERMISSIONS.TRANSPORT_MANAGE
 router.post('/driver-assignments', requirePermission(PERMISSIONS.TRANSPORT_MANAGE), validateRequest({ body: driverAssignmentSchema }), logAuditEvent('TRANSPORT_DRIVER_ASSIGNED', 'TransportDriverAssignment'), TransportController.assignDriver);
 router.post('/tracking-logs', requirePermission(PERMISSIONS.TRANSPORT_MANAGE), validateRequest({ body: trackingLogSchema }), logAuditEvent('TRANSPORT_GPS_LOGGED', 'TransportVehicleTrackingLog'), TransportController.recordTrackingLog);
 router.post('/incidents', requirePermission(PERMISSIONS.TRANSPORT_MANAGE), validateRequest({ body: transportIncidentSchema }), logAuditEvent('TRANSPORT_INCIDENT_RECORDED', 'TransportIncident'), TransportController.createIncident);
+router.post('/attendance', requirePermission(PERMISSIONS.TRANSPORT_MANAGE), validateRequest({ body: transportAttendanceSchema }), logAuditEvent('TRANSPORT_ATTENDANCE_MARKED', 'TransportAttendance'), TransportController.markAttendance);
+router.post('/charges', requirePermission(PERMISSIONS.TRANSPORT_MANAGE), validateRequest({ body: transportChargeSchema }), logAuditEvent('TRANSPORT_MONTHLY_CHARGE_GENERATED', 'TransportMonthlyCharge'), TransportController.generateMonthlyCharge);
 export default router;

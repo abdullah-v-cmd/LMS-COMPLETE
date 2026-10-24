@@ -16,4 +16,7 @@ export class TransportController {
   static async recordTrackingLog(req: AuthenticatedRequest, res: Response, next: NextFunction) { try { return sendSuccess(res, await TransportService.recordTrackingLog(req.institutionId!, req.user!.id, req.body), 201); } catch (e) { next(e); } }
   static async incidents(req: AuthenticatedRequest, res: Response, next: NextFunction) { try { return sendSuccess(res, await TransportService.incidents(req.institutionId!, req.user!)); } catch (e) { next(e); } }
   static async createIncident(req: AuthenticatedRequest, res: Response, next: NextFunction) { try { return sendSuccess(res, await TransportService.createIncident(req.institutionId!, req.user!.id, req.body), 201); } catch (e) { next(e); } }
+  static async attendance(req: AuthenticatedRequest, res: Response, next: NextFunction) { try { return sendSuccess(res, await TransportService.attendance(req.institutionId!, req.user!)); } catch (e) { next(e); } }
+  static async markAttendance(req: AuthenticatedRequest, res: Response, next: NextFunction) { try { return sendSuccess(res, await TransportService.markAttendance(req.institutionId!, req.user!.id, req.body), 201); } catch (e) { next(e); } }
+  static async generateMonthlyCharge(req: AuthenticatedRequest, res: Response, next: NextFunction) { try { return sendSuccess(res, await TransportService.generateMonthlyCharge(req.institutionId!, req.user!.id, req.body), 201); } catch (e) { next(e); } }
 }
