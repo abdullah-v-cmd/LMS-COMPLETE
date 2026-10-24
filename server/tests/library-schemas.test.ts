@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bookSchema, borrowSchema, finePolicySchema, barcodeSchema, inventoryAuditSchema } from '../src/modules/library/library.schemas';
+import { bookSchema, borrowSchema, finePolicySchema, barcodeSchema, inventoryAuditSchema, renewalSchema, circulationReportQuerySchema } from '../src/modules/library/library.schemas';
 
 describe('Library request validation', () => {
   it('validates catalog fields and positive integer inventory', () => {
@@ -28,5 +28,17 @@ describe('Library request validation', () => {
     expect(finePolicySchema.safeParse({ dailyFine: 1.25, currencyCode: 'PKR' }).success).toBe(true);
     expect(finePolicySchema.safeParse({ dailyFine: -1, currencyCode: 'PKR' }).success).toBe(false);
     expect(finePolicySchema.safeParse({ dailyFine: 1.256, currencyCode: 'PKR' }).success).toBe(false);
+  });
+
+  it('accepts a calendar renewal date and rejects malformed values', () => {
+    expect(renewalSchema.safeParse({ dueDate: '2026-11-30' }).success).toBe(true);
+    expect(renewalSchema.safeParse({ dueDate: '2026-02-30' }).success).toBe(false);
+    expect(renewalSchema.safeParse({ dueDate: '2026-11-30', extra: true }).success).toBe(false);
+  });
+
+  it('validates circulation-report date boundaries', () => {
+    expect(circulationReportQuerySchema.safeParse({ from: '2026-01-01', to: '2026-12-31' }).success).toBe(true);
+    expect(circulationReportQuerySchema.safeParse({ from: '2026-12-31', to: '2026-01-01' }).success).toBe(false);
+    expect(circulationReportQuerySchema.safeParse({ from: 'not-a-date' }).success).toBe(false);
   });
 });

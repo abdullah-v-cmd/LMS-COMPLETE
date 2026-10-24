@@ -6,7 +6,7 @@ import { validateRequest } from '../../middleware/validate';
 import { logAuditEvent } from '../../middleware/audit';
 import { PERMISSIONS } from '../../constants/permissions';
 import { LibraryController } from './library.controller';
-import { bookSchema, borrowSchema, recordIdSchema, finePolicySchema, barcodeSchema, reservationSchema, inventoryAuditSchema } from './library.schemas';
+import { bookSchema, borrowSchema, recordIdSchema, finePolicySchema, barcodeSchema, reservationSchema, inventoryAuditSchema, renewalSchema, circulationReportQuerySchema } from './library.schemas';
 
 const router = Router();
 router.use(requireAuth, requireTenant);
@@ -19,10 +19,12 @@ router.post('/reservations/:id/cancel', requirePermission(PERMISSIONS.LIBRARY_RE
 router.get('/inventory-audits', requirePermission(PERMISSIONS.LIBRARY_MANAGE), LibraryController.inventoryAudits);
 router.post('/inventory-audits', requirePermission(PERMISSIONS.LIBRARY_MANAGE), validateRequest({ body: inventoryAuditSchema }), logAuditEvent('LIBRARY_INVENTORY_AUDITED', 'LibraryInventoryAudit'), LibraryController.createInventoryAudit);
 router.get('/loans', requirePermission(PERMISSIONS.LIBRARY_READ), LibraryController.loans);
+router.get('/reports/circulation', requirePermission(PERMISSIONS.LIBRARY_MANAGE), validateRequest({ query: circulationReportQuerySchema }), LibraryController.circulationReport);
 router.get('/fine-policy', requirePermission(PERMISSIONS.LIBRARY_READ), LibraryController.finePolicy);
 router.put('/fine-policy', requirePermission(PERMISSIONS.LIBRARY_MANAGE), validateRequest({ body: finePolicySchema }), logAuditEvent('LIBRARY_FINE_POLICY_UPDATED', 'LibraryFinePolicy'), LibraryController.saveFinePolicy);
 router.post('/loans', requirePermission(PERMISSIONS.LIBRARY_MANAGE), validateRequest({ body: borrowSchema }), logAuditEvent('LIBRARY_BOOK_CHECKED_OUT', 'BookBorrowRecord'), LibraryController.checkout);
 router.post('/loans/:id/checkin', requirePermission(PERMISSIONS.LIBRARY_MANAGE), validateRequest({ params: recordIdSchema }), logAuditEvent('LIBRARY_BOOK_CHECKED_IN', 'BookBorrowRecord'), LibraryController.checkin);
+router.post('/loans/:id/renew', requirePermission(PERMISSIONS.LIBRARY_MANAGE), validateRequest({ params: recordIdSchema, body: renewalSchema }), logAuditEvent('LIBRARY_BOOK_RENEWED', 'BookBorrowRecord'), LibraryController.renew);
 router.post('/loans/:id/lost', requirePermission(PERMISSIONS.LIBRARY_MANAGE), validateRequest({ params: recordIdSchema }), logAuditEvent('LIBRARY_BOOK_REPORTED_LOST', 'BookBorrowRecord'), LibraryController.reportLost);
 router.post('/loans/:id/recover', requirePermission(PERMISSIONS.LIBRARY_MANAGE), validateRequest({ params: recordIdSchema }), logAuditEvent('LIBRARY_BOOK_RECOVERED', 'BookBorrowRecord'), LibraryController.recoverLost);
 export default router;

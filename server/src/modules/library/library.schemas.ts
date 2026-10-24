@@ -10,3 +10,10 @@ export const reservationSchema = z.object({ bookId: z.string().uuid() }).strict(
 export const inventoryAuditSchema = z.object({ bookId: z.string().uuid(), barcodes: z.array(z.string().trim().min(1).max(100).regex(/^[A-Za-z0-9-]+$/)).max(20000) }).strict().superRefine((data, ctx) => {
   if (new Set(data.barcodes).size !== data.barcodes.length) ctx.addIssue({ code: 'custom', path: ['barcodes'], message: 'A barcode may only be scanned once per audit' });
 });
+export const renewalSchema = z.object({ dueDate: z.string().date() }).strict();
+export const circulationReportQuerySchema = z.object({
+  from: z.string().date().optional(),
+  to: z.string().date().optional(),
+}).strict().superRefine((data, ctx) => {
+  if (data.from && data.to && data.from > data.to) ctx.addIssue({ code: 'custom', path: ['to'], message: 'End date must not be before start date' });
+});

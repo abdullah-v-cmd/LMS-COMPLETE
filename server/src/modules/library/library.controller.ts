@@ -20,4 +20,6 @@ export class LibraryController {
   static async loans(req: AuthenticatedRequest, res: Response, next: NextFunction) { try { return sendSuccess(res, await LibraryService.listLoans(req.institutionId!, req.user!.id, req.user!.role)); } catch (e) { next(e); } }
   static async checkout(req: AuthenticatedRequest, res: Response, next: NextFunction) { try { return sendSuccess(res, await LibraryService.checkout(req.institutionId!, req.user!.id, req.body), 201); } catch (e) { next(e); } }
   static async checkin(req: AuthenticatedRequest, res: Response, next: NextFunction) { try { return sendSuccess(res, await LibraryService.checkin(req.institutionId!, req.params.id)); } catch (e) { next(e); } }
+  static async renew(req: AuthenticatedRequest, res: Response, next: NextFunction) { try { return sendSuccess(res, await LibraryService.renew(req.institutionId!, req.params.id, req.body.dueDate)); } catch (e) { next(e); } }
+  static async circulationReport(req: AuthenticatedRequest, res: Response, next: NextFunction) { try { return sendSuccess(res, await LibraryService.circulationReport(req.institutionId!, req.query as { from?: string; to?: string })); } catch (e) { next(e); } }
 }

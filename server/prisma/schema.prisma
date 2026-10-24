@@ -1148,6 +1148,7 @@ model BookBorrowRecord {
   issuedByUserId String
   lostReportedAt DateTime?
   recoveredAt    DateTime?
+  renewalCount   Int          @default(0)
 
   book    BookCatalog    @relation(fields: [bookId], references: [id], onDelete: Cascade)
   copy    BookCopy?      @relation(fields: [copyId], references: [id], onDelete: SetNull)
