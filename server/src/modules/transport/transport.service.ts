@@ -97,20 +97,87 @@ export class TransportService {
   }
 
   static async generateMonthlyCharge(institutionId: string, userId: string, data: { allocationId: string; period: string; dueDate: string }) {
-    return prisma.$transaction(async (tx) => {
-      const allocation = await tx.studentTransportAllocation.findFirst({ where: { id: data.allocationId, route: { institutionId }, student: { status: 'ENROLLED' } }, include: { route: { select: { id: true, name: true, monthlyFee: true } } } });
-      if (!allocation) throw { status: 404, message: 'Active transport allocation not found in this institution' };
-      const existing = await tx.transportMonthlyCharge.findUnique({ where: { allocationId_period: { allocationId: allocation.id, period: data.period } }, include: { invoice: true } });
-      if (existing) return { charge: existing, invoice: existing.invoice, created: false };
-      const dueDate = new Date(`${data.dueDate}T23:59:59.999Z`);
-      const charge = await tx.transportMonthlyCharge.create({ data: { institutionId, allocationId: allocation.id, routeId: allocation.routeId, studentId: allocation.studentId, period: data.period, amount: allocation.route.monthlyFee, createdByUserId: userId } });
-      const invoice = await tx.studentFeeInvoice.create({ data: { institutionId, studentId: allocation.studentId, transportChargeId: charge.id, invoiceNumber: `TRN-${randomUUID().replace(/-/g, '').slice(0, 16).toUpperCase()}`, totalAmount: allocation.route.monthlyFee, balanceAmount: allocation.route.monthlyFee, status: InvoiceStatus.UNPAID, dueDate } });
-      await tx.financialLedgerEntry.createMany({ data: [
-        { institutionId, accountCode: '1100-ACCOUNTS-RECEIVABLE', debitAmount: allocation.route.monthlyFee, referenceType: 'TRANSPORT_INVOICE', referenceId: invoice.id, description: `Transport ${data.period}: ${allocation.route.name}`, createdByUserId: userId },
-        { institutionId, accountCode: '4010-TRANSPORT-REVENUE', creditAmount: allocation.route.monthlyFee, referenceType: 'TRANSPORT_INVOICE', referenceId: invoice.id, description: `Transport ${data.period}: ${allocation.route.name}`, createdByUserId: userId },
-      ] });
-      return { charge, invoice, created: true };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const allocation = await tx.studentTransportAllocation.findFirst({
+          where: { id: data.allocationId, route: { institutionId }, student: { status: 'ENROLLED' } },
+          include: { route: { select: { id: true, name: true, monthlyFee: true } } },
+        });
+        if (!allocation) throw { status: 404, message: 'Active transport allocation not found in this institution' };
+        const existing = await tx.transportMonthlyCharge.findUnique({
+          where: { allocationId_period: { allocationId: allocation.id, period: data.period } },
+          include: { invoice: true },
+        });
+        if (existing) {
+          if (existing.invoice) {
+            return { charge: existing, invoice: existing.invoice, created: false };
+          }
+          // Self-heal: charge exists but invoice was omitted
+          const dueDate = new Date(`${data.dueDate}T23:59:59.999Z`);
+          const invoice = await tx.studentFeeInvoice.create({
+            data: {
+              institutionId,
+              studentId: allocation.studentId,
+              transportChargeId: existing.id,
+              invoiceNumber: `TRN-${randomUUID().replace(/-/g, '').slice(0, 16).toUpperCase()}`,
+              totalAmount: allocation.route.monthlyFee,
+              balanceAmount: allocation.route.monthlyFee,
+              status: InvoiceStatus.UNPAID,
+              dueDate,
+            },
+          });
+          await tx.financialLedgerEntry.createMany({
+            data: [
+              { institutionId, accountCode: '1100-ACCOUNTS-RECEIVABLE', debitAmount: allocation.route.monthlyFee, referenceType: 'TRANSPORT_INVOICE', referenceId: invoice.id, description: `Transport ${data.period}: ${allocation.route.name}`, createdByUserId: userId },
+              { institutionId, accountCode: '4010-TRANSPORT-REVENUE', creditAmount: allocation.route.monthlyFee, referenceType: 'TRANSPORT_INVOICE', referenceId: invoice.id, description: `Transport ${data.period}: ${allocation.route.name}`, createdByUserId: userId },
+            ],
+          });
+          return { charge: existing, invoice, created: false };
+        }
+        const dueDate = new Date(`${data.dueDate}T23:59:59.999Z`);
+        const charge = await tx.transportMonthlyCharge.create({
+          data: {
+            institutionId,
+            allocationId: allocation.id,
+            routeId: allocation.routeId,
+            studentId: allocation.studentId,
+            period: data.period,
+            amount: allocation.route.monthlyFee,
+            createdByUserId: userId,
+          },
+        });
+        const invoice = await tx.studentFeeInvoice.create({
+          data: {
+            institutionId,
+            studentId: allocation.studentId,
+            transportChargeId: charge.id,
+            invoiceNumber: `TRN-${randomUUID().replace(/-/g, '').slice(0, 16).toUpperCase()}`,
+            totalAmount: allocation.route.monthlyFee,
+            balanceAmount: allocation.route.monthlyFee,
+            status: InvoiceStatus.UNPAID,
+            dueDate,
+          },
+        });
+        await tx.financialLedgerEntry.createMany({
+          data: [
+            { institutionId, accountCode: '1100-ACCOUNTS-RECEIVABLE', debitAmount: allocation.route.monthlyFee, referenceType: 'TRANSPORT_INVOICE', referenceId: invoice.id, description: `Transport ${data.period}: ${allocation.route.name}`, createdByUserId: userId },
+            { institutionId, accountCode: '4010-TRANSPORT-REVENUE', creditAmount: allocation.route.monthlyFee, referenceType: 'TRANSPORT_INVOICE', referenceId: invoice.id, description: `Transport ${data.period}: ${allocation.route.name}`, createdByUserId: userId },
+          ],
+        });
+        return { charge, invoice, created: true };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (err: any) {
+      if (err.code === 'P2002' || err.code === '40001') {
+        const existing = await prisma.transportMonthlyCharge.findUnique({
+          where: { allocationId_period: { allocationId: data.allocationId, period: data.period } },
+          include: { invoice: true },
+        });
+        if (existing && existing.invoice) {
+          return { charge: existing, invoice: existing.invoice, created: false };
+        }
+      }
+      throw err;
+    }
   }
 
   private static async linkedStudentIds(institutionId: string, user: AuthenticatedUser): Promise<string[] | undefined> {

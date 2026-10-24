@@ -27,8 +27,13 @@ describe('Transport request validation', () => {
   it('validates attendance service dates and monthly charge periods', () => {
     const allocationId = 'a0184c98-7f09-4b16-a22c-95b8dbf2a010';
     expect(transportAttendanceSchema.safeParse({ allocationId, serviceDate: '2026-10-24', status: 'PRESENT' }).success).toBe(true);
+    expect(transportAttendanceSchema.safeParse({ allocationId, serviceDate: '2026-10-24', status: 'BOARDED' }).success).toBe(true);
+    expect(transportAttendanceSchema.safeParse({ allocationId, serviceDate: '2026-10-24', status: 'DROPPED' }).success).toBe(true);
+    expect(transportAttendanceSchema.safeParse({ allocationId, serviceDate: '2026-10-24', status: 'ABSENT' }).success).toBe(true);
+    expect(transportAttendanceSchema.safeParse({ allocationId, serviceDate: '2026-10-24', status: 'INVALID_STATUS' }).success).toBe(false);
     expect(transportAttendanceSchema.safeParse({ allocationId, serviceDate: '2026-02-30', status: 'PRESENT' }).success).toBe(false);
     expect(transportChargeSchema.safeParse({ allocationId, period: '2026-10', dueDate: '2026-10-31' }).success).toBe(true);
     expect(transportChargeSchema.safeParse({ allocationId, period: '2026-13', dueDate: '2026-10-31' }).success).toBe(false);
+    expect(transportChargeSchema.safeParse({ allocationId, period: '2026-00', dueDate: '2026-10-31' }).success).toBe(false);
   });
 });

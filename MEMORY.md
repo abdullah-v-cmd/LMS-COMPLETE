@@ -170,3 +170,25 @@ d:\lms2/
   - Frontend TypeScript and Vite production bundle: `npm run build` in `client/` passed with exit code 0 (`dist/index.html` 0.81 kB, `dist/assets/index-BCXEo6BN.js` 495.31 kB).
   - Pure unit and schema test suite: 14 test files passed, 59/59 tests passed.
   - Database migrations and DB integration workflows remain pending execution against a confirmed dedicated PostgreSQL database (`localhost:5432` currently unreachable).
+
+### Billing Idempotency, Ledger Consistency & Financial Invariants Audit — 2026-10-24
+- **Billing Idempotency & Race Condition Handling**:
+  - Validated composite DB constraint `@@unique([allocationId, period])` on `TransportMonthlyCharge` and `@unique` on `StudentFeeInvoice.transportChargeId`.
+  - Updated `TransportService.generateMonthlyCharge` with `P2002` / `40001` serialization conflict catch to return existing charge and invoice idempotently rather than failing if a concurrent request races past the initial query.
+  - Added self-healing: if an existing charge record is found without an invoice, it generates the missing invoice and balanced ledger rows inside the transaction.
+  - Enforced route monthly fee strictly from `TransportRoute.monthlyFee`; client-supplied amounts are never accepted.
+  - Added `/charges/generate` endpoint alias alongside `/charges` in `transport.routes.ts`.
+  - Updated `transportAttendanceSchema` to support `BOARDED` and `DROPPED` status transitions along with `PRESENT`, `ABSENT`, and `LATE`.
+- **Double-Entry Ledger Consistency & Invariants**:
+  - Verified balanced postings: Total Debits === Total Credits on all transaction types (`INVOICE`, `TRANSPORT_INVOICE`, `PAYMENT`, `WAIVER`, `REFUND`).
+  - Standard & transport invoices post debit to `1100-ACCOUNTS-RECEIVABLE` and credit to `4000-FEE-REVENUE` / `4010-TRANSPORT-REVENUE`.
+  - Payments post debit to cash/cheque/bank accounts and credit to `1100-ACCOUNTS-RECEIVABLE`.
+  - Waivers post debit to `5000-FEE-DISCOUNTS` and credit to `1100-ACCOUNTS-RECEIVABLE`.
+  - Refunds post debit to `1100-ACCOUNTS-RECEIVABLE` and credit to the original payment channel.
+  - Enforced Maker-Checker duality: self-review is rejected with HTTP 403 on both waivers and refunds.
+  - Created `server/tests/billing-ledger-invariants.test.ts` with 20 unit tests verifying all mathematical and accounting invariants.
+- **Verification Evidence**:
+  - TypeScript compilation: `npm run build` in `server/` passed (0 errors, code 0).
+  - Client production build: `npm run build` in `client/` passed (0 errors, code 0, 495 kB bundle).
+  - Vitest test suite: 15 test files passed, 79/79 tests passed (0 failures).
+  - PostgreSQL test database status: `localhost:5432` is confirmed unreachable (`Test-NetConnection` port 5432 failed, no `psql` command, Docker inactive). Database workflow tests remain intentionally un-executed until an isolated test environment is provisioned.

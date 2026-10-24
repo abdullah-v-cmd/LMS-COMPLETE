@@ -25,4 +25,5 @@ router.post('/tracking-logs', requirePermission(PERMISSIONS.TRANSPORT_MANAGE), v
 router.post('/incidents', requirePermission(PERMISSIONS.TRANSPORT_MANAGE), validateRequest({ body: transportIncidentSchema }), logAuditEvent('TRANSPORT_INCIDENT_RECORDED', 'TransportIncident'), TransportController.createIncident);
 router.post('/attendance', requirePermission(PERMISSIONS.TRANSPORT_MANAGE), validateRequest({ body: transportAttendanceSchema }), logAuditEvent('TRANSPORT_ATTENDANCE_MARKED', 'TransportAttendance'), TransportController.markAttendance);
 router.post('/charges', requirePermission(PERMISSIONS.TRANSPORT_MANAGE), validateRequest({ body: transportChargeSchema }), logAuditEvent('TRANSPORT_MONTHLY_CHARGE_GENERATED', 'TransportMonthlyCharge'), TransportController.generateMonthlyCharge);
+router.post('/charges/generate', requirePermission(PERMISSIONS.TRANSPORT_MANAGE), validateRequest({ body: transportChargeSchema }), logAuditEvent('TRANSPORT_MONTHLY_CHARGE_GENERATED', 'TransportMonthlyCharge'), TransportController.generateMonthlyCharge);
 export default router;

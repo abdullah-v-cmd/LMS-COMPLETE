@@ -162,17 +162,25 @@
 ### Phase 6: Fees & Financial Management
 - [ ] **TASK-P6-01**
   - **Requirement IDs**: FIN-001 to FIN-007
-  - **Feature**: Invoices, Payments, Maker-Checker Waivers & Ledgers
-  - **Implementation Scope**: Fee structure setup, student fee invoicing, counter collection (Cash/Cheque/Bank/Online), receipt generation, dual-approval waivers (Clerk Maker → Finance Head Checker), and ledger entries.
-  - **Status**: IN_PROGRESS
-  - **Implemented**: Added a tenant-scoped fee structure, invoice generation, invoice listing, cash/cheque/bank payment collection, waiver request/review, refund request/review, finance UI, and ledger API. Refund requests reserve remaining payment value, reject unconfigured online-provider refunds, enforce checker roles/maker-checker, and approval reverses invoice balance and posts balanced ledger rows transactionally. Payment and approved waiver posting update invoice balances and create balanced double-entry ledger rows within serializable transactions. Online payments are rejected because provider verification is not integrated. Parent and student invoice lists are limited to linked profiles.
-  - **Relevant Files**: `server/src/modules/finance/*`, `server/src/app.ts`, `server/tests/finance-schemas.test.ts`, `ARCHITECTURE.md`.
-  - **Database Changes**: Added `FeeRefundRequest` and `RefundStatus` in `server/prisma/schema.prisma`; migration `20261024150000_finance_refunds` must be applied in an approved environment.
-  - **Dependencies**: Existing fee and ledger schema; PostgreSQL needed for transaction and concurrency verification.
-  - **Acceptance Criteria**: Invoice generation is tenant/class scoped and skips existing invoices; collection cannot exceed balance; online confirmations are rejected; payments and approved waivers update ledger with balanced debits and credits; waiver requester cannot approve own request; parent/student invoice data is scoped.
-  - **Required Tests**: Schema tests and DB integration for invoice generation idempotence, partial/full payment, overspend, balanced ledger, refund reservation/reversal, tenant isolation, and maker-checker/concurrency.
-  - **Actual Verification Evidence**: `npx prisma validate` passed; Prisma Client generated. `npm run build` passed in `server/` after generation and in `client/`. `npx vitest run tests/finance-schemas.test.ts tests/exam-schemas.test.ts tests/attendance-schemas.test.ts tests/leave-schemas.test.ts` passed (16 tests). `npx tsc --noEmit --pretty false` passed. Added `tests/finance-refund-workflow.test.ts` covering persisted payment/refund, maker-checker rejection, invoice reversal, and balanced ledger; the DB workflow itself was not run because configured DB `lms2` is not confirmed isolated and `localhost:5432` was unreachable at last check.
-  - **Blocker or Next Action**: Apply the refund migration and add/run finance transaction integration tests on a confirmed isolated PostgreSQL database. Provider payment/refund integration is not configured and is intentionally rejected.
+  - **Feature**: Invoices, Payments, Maker-Checker Waivers, Refunds, Transport Billing & Double-Entry Ledgers
+  - **Implementation Scope**: Fee structure setup, student fee invoicing, counter collection (Cash/Cheque/Bank), receipt generation, dual-approval waivers (Clerk Maker → Finance Head Checker), refund lifecycle, transport monthly route billing, and balanced double-entry accounting ledger entries.
+  - **Status**: IMPLEMENTED, VERIFICATION PENDING
+  - **Implemented**: Added tenant-scoped fee structures, invoice generation, cash/cheque/bank payment collection, waiver request/review, refund request/review, transport monthly billing integration, finance UI, and ledger API.
+    - **Balanced Double-Entry Postings**: Every journal transaction strictly balances Total Debits === Total Credits:
+      - Standard Invoice: Debit `1100-ACCOUNTS-RECEIVABLE`, Credit `4000-FEE-REVENUE`.
+      - Transport Invoice: Debit `1100-ACCOUNTS-RECEIVABLE`, Credit `4010-TRANSPORT-REVENUE`.
+      - Payment: Debit `1000-CASH`/`1010-CHEQUE-CLEARING`/`1020-BANK`, Credit `1100-ACCOUNTS-RECEIVABLE`.
+      - Waiver: Debit `5000-FEE-DISCOUNTS`, Credit `1100-ACCOUNTS-RECEIVABLE`.
+      - Refund: Debit `1100-ACCOUNTS-RECEIVABLE`, Credit `1000-CASH`/`1010-CHEQUE-CLEARING`/`1020-BANK`.
+    - **Billing Idempotency & Race Handling**: Transport charges derive amounts strictly from `TransportRoute.monthlyFee` under serializable transactions, enforce DB unique constraint `(allocationId, period)` and unique invoice link `transportChargeId`, handle concurrent race conditions (`P2002`/`40001`), and self-heal missing invoices.
+    - **Maker-Checker Dual Governance**: Self-approval for waivers and refunds is strictly blocked at the service level; authorized checkers are restricted to `ROLE_FINANCE_HEAD`, `ROLE_INSTITUTION_ADMIN`, `ROLE_SUPER_ADMIN`.
+  - **Relevant Files**: `server/src/modules/finance/*`, `server/src/modules/transport/transport.service.ts`, `server/src/app.ts`, `server/tests/finance-schemas.test.ts`, `server/tests/billing-ledger-invariants.test.ts`, `server/tests/transport-workflow.test.ts`, `ARCHITECTURE.md`.
+  - **Database Changes**: Added `FeeRefundRequest`, `RefundStatus`, `TransportMonthlyCharge`, and unique invoice reference `transportChargeId`. Migrations `20261024150000_finance_refunds` and `20261025000300_transport_attendance_billing` stored in `server/prisma/migrations/`.
+  - **Dependencies**: Existing fee and ledger schema; dedicated PostgreSQL instance needed for integration test execution.
+  - **Acceptance Criteria**: Invoice generation is tenant/class scoped and skips existing invoices; payment cannot exceed balance; online payment/refund confirmations are rejected pending provider integration; payments, approved waivers, and refunds update ledger with balanced debits and credits; waiver/refund requester cannot approve own request; parent/student invoice data is strictly tenant/user scoped.
+  - **Required Tests**: Pure invariant tests and DB integration for invoice generation idempotence, partial/full payment, overspend rejection, balanced ledger, refund reservation/reversal, tenant isolation, and maker-checker/concurrency.
+  - **Actual Verification Evidence**: `npx prisma validate` passed; Prisma Client generated. `npm run build` passed in `server/` (exit code 0) and `client/` (exit code 0). Pure unit and schema test suite passed 79/79 tests across 15 test files, including 20/20 in `tests/billing-ledger-invariants.test.ts`. Database integration tests remain un-executed pending confirmed isolated test database (`localhost:5432` unreachable).
+  - **Blocker or Next Action**: Apply pending migrations and run finance transaction integration tests (`finance-refund-workflow.test.ts`, `transport-workflow.test.ts`) when an isolated PostgreSQL test database is available. Provider payment integration is intentionally rejected.
 
 ---
 
