@@ -6,7 +6,40 @@ import { prisma } from '../src/utils/prisma';
 
 describe('Phase 5: examination workflow integration', () => {
   let app: Express;
-  beforeAll(async () => { app = createApp(); await prisma.$connect(); });
+  beforeAll(async () => {
+    app = createApp();
+    await prisma.$connect();
+    const testSessions = await prisma.examSession.findMany({
+      where: {
+        OR: [
+          { name: { startsWith: 'Workflow ' } },
+          { name: { startsWith: 'Conflict Session ' } },
+        ],
+      },
+      select: { id: true },
+    });
+    const sessionIds = testSessions.map((s) => s.id);
+    if (sessionIds.length > 0) {
+      await prisma.studentReportCard.deleteMany({
+        where: { examSessionId: { in: sessionIds } },
+      });
+      await prisma.gradeChangeRequest.deleteMany({
+        where: { examMark: { examSchedule: { examSessionId: { in: sessionIds } } } },
+      });
+      await prisma.examMark.deleteMany({
+        where: { examSchedule: { examSessionId: { in: sessionIds } } },
+      });
+      await prisma.examInvigilator.deleteMany({
+        where: { examSchedule: { examSessionId: { in: sessionIds } } },
+      });
+      await prisma.examSchedule.deleteMany({
+        where: { examSessionId: { in: sessionIds } },
+      });
+      await prisma.examSession.deleteMany({
+        where: { id: { in: sessionIds } },
+      });
+    }
+  });
   afterAll(async () => { await prisma.$disconnect(); });
 
   it('creates a session, schedules an exam, enters and moderates marks, and publishes a report card', async () => {
@@ -38,7 +71,9 @@ describe('Phase 5: examination workflow integration', () => {
     expect(fetchedAssignments.status).toBe(200);
     expect(fetchedAssignments.body.data).toHaveLength(1);
     const otherSubject = await prisma.subject.findFirstOrThrow({ where: { institutionId: controllerUser.institutionId!, id: { not: subject.id } }, select: { id: true } });
-    const overlappingSchedule = await request(app).post('/api/v1/exams/schedules').set('Authorization', `Bearer ${controllerToken}`).send({ examSessionId: session.body.data.id, subjectId: otherSubject.id, examDate: startDate, startTime: '10:00', endTime: '12:00', maxMarks: 100, passMarks: 40, roomNumber: 'TEST-2' });
+    const conflictSession = await request(app).post('/api/v1/exams/sessions').set('Authorization', `Bearer ${controllerToken}`).send({ academicTermId: term.id, name: `Conflict Session ${Date.now()}`, startDate, endDate });
+    expect(conflictSession.status).toBe(201);
+    const overlappingSchedule = await request(app).post('/api/v1/exams/schedules').set('Authorization', `Bearer ${controllerToken}`).send({ examSessionId: conflictSession.body.data.id, subjectId: otherSubject.id, examDate: startDate, startTime: '10:00', endTime: '12:00', maxMarks: 100, passMarks: 40, roomNumber: 'TEST-2' });
     expect(overlappingSchedule.status).toBe(201);
     const conflict = await request(app).put(`/api/v1/exams/schedules/${overlappingSchedule.body.data.id}/invigilators`).set('Authorization', `Bearer ${controllerToken}`).send({ userIds: [invigilator.userId] });
     expect(conflict.status).toBe(409);
@@ -46,20 +81,26 @@ describe('Phase 5: examination workflow integration', () => {
     const roster = await request(app).get(`/api/v1/exams/schedules/${schedule.body.data.id}/roster`).set('Authorization', `Bearer ${teacherToken}`);
     expect(roster.status).toBe(200);
     expect(roster.body.data.students.some((row: { id: string }) => row.id === student.id)).toBe(true);
-    const marks = await request(app).post('/api/v1/exams/marks').set('Authorization', `Bearer ${teacherToken}`).send({ examScheduleId: schedule.body.data.id, marks: [{ studentId: student.id, marksObtained: 75, isAbsent: false }] });
+    const marksPayload = roster.body.data.students.map((row: { id: string }) => ({
+      studentId: row.id,
+      marksObtained: 75,
+      isAbsent: false,
+    }));
+    const marks = await request(app).post('/api/v1/exams/marks').set('Authorization', `Bearer ${teacherToken}`).send({ examScheduleId: schedule.body.data.id, marks: marksPayload });
     expect(marks.status).toBe(200);
     expect((await prisma.examMark.findUnique({ where: { examScheduleId_studentId: { examScheduleId: schedule.body.data.id, studentId: student.id } } }))?.marksObtained).toBe(75);
     const duplicate = await request(app).post('/api/v1/exams/marks').set('Authorization', `Bearer ${teacherToken}`).send({ examScheduleId: schedule.body.data.id, marks: [{ studentId: student.id, marksObtained: 80, isAbsent: false }] });
     expect(duplicate.status).toBe(409);
 
-    const change = await request(app).post('/api/v1/exams/grade-changes').set('Authorization', `Bearer ${teacherToken}`).send({ examMarkId: marks.body.data[0].id, proposedMarks: 80, reason: 'Verified marking calculation adjustment' });
+    const aliceMark = marks.body.data.find((item: { studentId: string }) => item.studentId === student.id);
+    const change = await request(app).post('/api/v1/exams/grade-changes').set('Authorization', `Bearer ${teacherToken}`).send({ examMarkId: aliceMark.id, proposedMarks: 80, reason: 'Verified marking calculation adjustment' });
     expect(change.status).toBe(201);
     const queue = await request(app).get('/api/v1/exams/grade-changes').set('Authorization', `Bearer ${controllerToken}`);
     expect(queue.status).toBe(200);
     expect(queue.body.data.some((item: { id: string }) => item.id === change.body.data.id)).toBe(true);
     const reviewed = await request(app).post(`/api/v1/exams/grade-changes/${change.body.data.id}/review`).set('Authorization', `Bearer ${principalToken}`).send({ status: 'APPROVED' });
     expect(reviewed.status).toBe(200);
-    expect((await prisma.examMark.findUnique({ where: { id: marks.body.data[0].id } }))?.marksObtained).toBe(80);
+    expect((await prisma.examMark.findUnique({ where: { id: aliceMark.id } }))?.marksObtained).toBe(80);
 
     const scale = await request(app).put('/api/v1/exams/grading-scale').set('Authorization', `Bearer ${controllerToken}`).send({ bands: [{ minimumPercentage: 0, gradeLetter: 'F', gpa: 0 }, { minimumPercentage: 70, gradeLetter: 'P', gpa: 3.25 }] });
     expect(scale.status).toBe(200);

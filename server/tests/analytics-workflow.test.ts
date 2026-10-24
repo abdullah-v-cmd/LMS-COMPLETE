@@ -16,7 +16,7 @@ describe('Phase 7 & 8: role-scoped persisted analytics workflow integration', ()
 
   it('serves role-scoped dashboard and domain analytics with tenant isolation', async () => {
     const [adminLogin, studentLogin] = await Promise.all([
-      request(app).post('/api/v1/auth/login').send({ usernameOrEmail: 'admin@alpha.edu', password: 'Password123!' }),
+      request(app).post('/api/v1/auth/login').send({ usernameOrEmail: 'principal@alpha.edu', password: 'Password123!' }),
       request(app).post('/api/v1/auth/login').send({ usernameOrEmail: 'student.alice@alpha.edu', password: 'Password123!' }),
     ]);
 

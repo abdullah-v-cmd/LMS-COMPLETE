@@ -290,78 +290,96 @@ async function main() {
   });
 
   // 8. LMS Course, Modules, Lessons, Assignment
-  const course = await prisma.course.create({
-    data: {
-      institutionId: alphaInst.id,
-      subjectId: subjectMath.id,
-      sectionId: section.id,
-      teacherId: teacherProfile.id,
-      academicTermId: academicTerm.id,
-      title: 'Grade 10 Advanced Mathematics',
-      code: 'MATH-10-A',
-      description: 'Comprehensive study of polynomial algebra, trigonometry, and coordinate geometry.',
-      isPublished: true,
-    },
+  let course = await prisma.course.findFirst({
+    where: { code: 'MATH-10-A', institutionId: alphaInst.id },
   });
 
-  const module1 = await prisma.courseModule.create({
-    data: {
-      courseId: course.id,
-      title: 'Module 1: Polynomial Functions & Factoring',
-      sequenceOrder: 1,
-      isPublished: true,
-    },
-  });
+  if (!course) {
+    course = await prisma.course.create({
+      data: {
+        institutionId: alphaInst.id,
+        subjectId: subjectMath.id,
+        sectionId: section.id,
+        teacherId: teacherProfile.id,
+        academicTermId: academicTerm.id,
+        title: 'Grade 10 Advanced Mathematics',
+        code: 'MATH-10-A',
+        description: 'Comprehensive study of polynomial algebra, trigonometry, and coordinate geometry.',
+        isPublished: true,
+      },
+    });
 
-  await prisma.lesson.create({
-    data: {
-      moduleId: module1.id,
-      title: 'Lesson 1.1: Quadratic Roots and Synthetic Division',
-      contentRichText: '<h2>Synthetic Division</h2><p>Synthetic division is a shortcut method for dividing polynomials when the divisor is of the form (x - c).</p>',
-      sequenceOrder: 1,
-      isPublished: true,
-    },
-  });
+    const module1 = await prisma.courseModule.create({
+      data: {
+        courseId: course.id,
+        title: 'Module 1: Polynomial Functions & Factoring',
+        sequenceOrder: 1,
+        isPublished: true,
+      },
+    });
 
-  await prisma.assignment.create({
-    data: {
-      courseId: course.id,
-      title: 'Assignment 1: Factoring Higher Degree Polynomials',
-      instructions: 'Complete problem set 1-15 from Chapter 2. Show all work and submit your solution.',
-      maxPoints: 100,
-      dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days from now
-      allowLateSubmissions: true,
-      latePenaltyPercent: 10,
-    },
-  });
+    await prisma.lesson.create({
+      data: {
+        moduleId: module1.id,
+        title: 'Lesson 1.1: Quadratic Roots and Synthetic Division',
+        contentRichText: '<h2>Synthetic Division</h2><p>Synthetic division is a shortcut method for dividing polynomials when the divisor is of the form (x - c).</p>',
+        sequenceOrder: 1,
+        isPublished: true,
+      },
+    });
+
+    await prisma.assignment.create({
+      data: {
+        courseId: course.id,
+        title: 'Assignment 1: Factoring Higher Degree Polynomials',
+        instructions: 'Complete problem set 1-15 from Chapter 2. Show all work and submit your solution.',
+        maxPoints: 100,
+        dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days from now
+        allowLateSubmissions: true,
+        latePenaltyPercent: 10,
+      },
+    });
+  }
 
   // 9. Fee Structure & Invoices
-  const feeStructure = await prisma.feeStructure.create({
-    data: {
-      institutionId: alphaInst.id,
-      academicYearId: academicYear.id,
-      classGradeId: classGrade.id,
-      name: 'Grade 10 Annual Tuition & Lab Fee',
-      amount: 1200.0,
-      dueDate: new Date('2026-09-01'),
-      frequency: 'ANNUAL',
-    },
+  let feeStructure = await prisma.feeStructure.findFirst({
+    where: { institutionId: alphaInst.id, name: 'Grade 10 Annual Tuition & Lab Fee' },
   });
 
-  await prisma.studentFeeInvoice.create({
-    data: {
-      institutionId: alphaInst.id,
-      studentId: studentProfile.id,
-      feeStructureId: feeStructure.id,
-      invoiceNumber: 'INV-2026-0001',
-      totalAmount: 1200.0,
-      discountAmount: 0.0,
-      paidAmount: 0.0,
-      balanceAmount: 1200.0,
-      status: 'UNPAID',
-      dueDate: new Date('2026-09-01'),
-    },
+  if (!feeStructure) {
+    feeStructure = await prisma.feeStructure.create({
+      data: {
+        institutionId: alphaInst.id,
+        academicYearId: academicYear.id,
+        classGradeId: classGrade.id,
+        name: 'Grade 10 Annual Tuition & Lab Fee',
+        amount: 1200.0,
+        dueDate: new Date('2026-09-01'),
+        frequency: 'ANNUAL',
+      },
+    });
+  }
+
+  const existingInvoice = await prisma.studentFeeInvoice.findUnique({
+    where: { invoiceNumber: 'INV-2026-0001' },
   });
+
+  if (!existingInvoice) {
+    await prisma.studentFeeInvoice.create({
+      data: {
+        institutionId: alphaInst.id,
+        studentId: studentProfile.id,
+        feeStructureId: feeStructure.id,
+        invoiceNumber: 'INV-2026-0001',
+        totalAmount: 1200.0,
+        discountAmount: 0.0,
+        paidAmount: 0.0,
+        balanceAmount: 1200.0,
+        status: 'UNPAID',
+        dueDate: new Date('2026-09-01'),
+      },
+    });
+  }
 
   console.log('--- Database Seeding Complete ---');
 }

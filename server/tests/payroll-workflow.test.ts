@@ -6,7 +6,25 @@ import { prisma } from '../src/utils/prisma';
 
 describe('Phase 7: restricted monthly payroll workflow', () => {
   let app: Express;
-  beforeAll(async () => { app = createApp(); await prisma.$connect(); });
+  beforeAll(async () => {
+    app = createApp();
+    await prisma.$connect();
+    const mathTeacher = await prisma.teacherProfile.findFirst({
+      where: { user: { email: 'teacher.math@alpha.edu' } },
+      select: { id: true, institutionId: true },
+    });
+    if (mathTeacher) {
+      await prisma.payrollEntry.deleteMany({
+        where: { teacherProfileId: mathTeacher.id },
+      });
+      await prisma.payrollRun.deleteMany({
+        where: { institutionId: mathTeacher.institutionId },
+      });
+      await prisma.staffCompensation.deleteMany({
+        where: { teacherProfileId: mathTeacher.id },
+      });
+    }
+  });
   afterAll(async () => { await prisma.$disconnect(); });
 
   it('lets finance set salary and generate a snapshot while denying auditor access', async () => {

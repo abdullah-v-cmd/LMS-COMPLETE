@@ -6,7 +6,21 @@ import { prisma } from '../src/utils/prisma';
 
 describe('Phase 7: tenant-scoped hostel resident workflows', () => {
   let app: Express;
-  beforeAll(async () => { app = createApp(); await prisma.$connect(); });
+  beforeAll(async () => {
+    app = createApp();
+    await prisma.$connect();
+    const alice = await prisma.studentProfile.findFirst({
+      where: { admissionNumber: 'ADM-2026-001' },
+      select: { id: true },
+    });
+    if (alice) {
+      await prisma.hostelStay.deleteMany({ where: { studentId: alice.id } });
+      await prisma.hostelMessCharge.deleteMany({ where: { studentId: alice.id } });
+      await prisma.hostelVisitorLog.deleteMany({ where: { studentId: alice.id } });
+      await prisma.hostelGatePass.deleteMany({ where: { studentId: alice.id } });
+      await prisma.hostelBedAllocation.deleteMany({ where: { studentId: alice.id } });
+    }
+  });
   afterAll(async () => { await prisma.$disconnect(); });
 
   it('allocates a bed, processes resident gate pass, visitor, and mess billing records', async () => {

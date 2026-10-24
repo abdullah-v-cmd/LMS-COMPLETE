@@ -47,6 +47,25 @@ describe('Phase 4: Attendance & Communication Workflow Tests', () => {
     studentAliceId = alice!.id;
     sectionId = alice!.sectionId;
     mathSubjectId = (await prisma.subject.findFirstOrThrow({ where: { code: 'MATH-101', institutionId: alice!.institutionId }, select: { id: true } })).id;
+
+    // Clean up test attendance records from previous runs to ensure test isolation
+    await prisma.attendanceCorrection.deleteMany({
+      where: {
+        OR: [
+          { attendanceRecord: { studentId: studentAliceId } },
+          { subjectAttendanceRecord: { studentId: studentAliceId } },
+        ],
+      },
+    });
+    await prisma.attendanceRecord.deleteMany({
+      where: { studentId: studentAliceId },
+    });
+    await prisma.subjectAttendanceRecord.deleteMany({
+      where: { studentId: studentAliceId },
+    });
+    await prisma.staffLeaveRequest.deleteMany({
+      where: { teacher: { user: { email: 'teacher.homeroom@alpha.edu' } } },
+    });
   });
 
   afterAll(async () => {
@@ -95,7 +114,9 @@ describe('Phase 4: Attendance & Communication Workflow Tests', () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.data.length).toBeGreaterThanOrEqual(1);
-    expect(res.body.data[0].status).toBe('ABSENT');
+    const record = res.body.data.find((r: any) => r.id === attendanceRecordId);
+    expect(record).toBeDefined();
+    expect(record.status).toBe('ABSENT');
   });
 
   it('POST /api/v1/attendance/corrections allows Teacher to request a status correction', async () => {
@@ -116,22 +137,34 @@ describe('Phase 4: Attendance & Communication Workflow Tests', () => {
   });
 
   it('MAKER-CHECKER RULE: Self-approval is rejected when requester attempts to approve own request', async () => {
-    // 1. Teacher cannot review due to lack of ATTENDANCE_APPROVE permission
+    // 1. Teacher cannot review due to Maker-Checker violation (requester cannot approve own request)
     const teacherReviewRes = await request(app)
       .post(`/api/v1/attendance/corrections/${correctionRequestId}/review`)
       .set('Authorization', `Bearer ${homeroomTeacherToken}`)
       .send({ status: 'APPROVED' });
     expect(teacherReviewRes.status).toBe(403);
 
-    // 2. Principal requests a correction and tries to self-approve it (Maker-Checker violation)
+    // 2. Principal marks attendance on a separate date, requests a correction, and tries to self-approve it
+    const markRes = await request(app)
+      .post('/api/v1/attendance/mark')
+      .set('Authorization', `Bearer ${principalToken}`)
+      .send({
+        sectionId,
+        date: '2026-10-21',
+        records: [{ studentId: studentAliceId, status: 'PRESENT' }],
+      });
+    expect(markRes.status).toBe(201);
+    const recordId2 = markRes.body.data[0].id;
+
     const principalReq = await request(app)
       .post('/api/v1/attendance/corrections')
       .set('Authorization', `Bearer ${principalToken}`)
       .send({
-        attendanceRecordId,
+        attendanceRecordId: recordId2,
         requestedStatus: 'LATE',
         reason: 'Principal correction request for self-approval check',
       });
+    expect(principalReq.status).toBe(201);
     const principalCorrId = principalReq.body.data.id;
 
     const selfApproveRes = await request(app)
