@@ -1,6 +1,5 @@
-import { UserRole } from '@prisma/client';
 import { prisma } from '../../utils/prisma';
-import { AuthenticatedUser } from '../../types';
+import { AuthenticatedUser, UserRole } from '../../types';
 import { redis } from '../../utils/redis';
 
 /** Role-scoped analytics aggregated from persisted database records. */
