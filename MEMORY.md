@@ -150,3 +150,23 @@ d:\lms2/
 - Exact next action: add database workflow assertions and persisted role-scoped analytics, then apply migrations and execute workflows only with a confirmed isolated PostgreSQL test database.
 
 - Local checkpoint after `6674979`: direct `D:\lms2` now has library renewal limits and circulation reporting. `20261025000400_library_renewals` is authored but un-applied. Server/client production builds passed and `library-schemas.test.ts` passed 7/7. No database workflow, browser, hosted CI, deployment, restore, accessibility, or performance verification was performed. Next implementation task: persisted role-scoped analytics, then review outstanding Phase 4–7 workflows and add DB tests without running them until a dedicated test database is approved.
+
+### Phase 7 & 8 Analytics and Reporting continuation — 2026-10-24
+- Implemented persisted, role-scoped analytics service and REST routes (`/api/v1/analytics/*`):
+  - **Dashboard**: role-specific overview stats (student enrollments/attendance/report cards; teacher courses/assignments; parent linked children; admin totals).
+  - **Attendance**: present/absent/late/excused counts, overall presence rate, and 90-day daily breakdown with section and teacher filters.
+  - **Examinations**: session schedules, published report-card counts, and average GPA per session.
+  - **Finance**: invoice status breakdown, total collected, payment counts, and overdue defaulter counts (restricted to finance roles & admins).
+  - **LMS**: courses with module/assignment counts, student enrollments by section, and assignment submissions/graded counts.
+  - **Transport**: attendance status breakdown, route counts, monthly billing charges and total billed amounts.
+  - **Library**: catalog counts, copy status breakdown, borrow status breakdown, waiting reservation count, and recent inventory audit summaries.
+  - **Hostel**: blocks, total rooms, total bed capacity, active bed allocations, occupancy rate percentage, incident categories, and mess charge status/totals.
+  - **HR & Payroll**: total teacher count, staff leave request breakdown by status, and recent payroll gross totals with staff counts.
+- Implemented frontend `AnalyticsPage` (`client/src/pages/AnalyticsPage.tsx`) with role-aware stats, date filters, and data cards. Mounted in `App.tsx` and linked with `BarChart3` icon in `Sidebar.tsx`.
+- Extended `server/tests/transport-workflow.test.ts` to assert transport attendance marking, idempotency / upsert duplicate prevention, monthly route fee charge generation, linked invoice creation, and balanced double-entry ledger postings (`1100-ACCOUNTS-RECEIVABLE` debit and `4010-TRANSPORT-REVENUE` credit).
+- Authored `server/tests/analytics-workflow.test.ts` covering role-scoped analytics endpoints and access-control enforcement.
+- Verification Evidence:
+  - Backend TypeScript compilation: `npm run build` in `server/` passed with exit code 0 (`tsc`).
+  - Frontend TypeScript and Vite production bundle: `npm run build` in `client/` passed with exit code 0 (`dist/index.html` 0.81 kB, `dist/assets/index-BCXEo6BN.js` 495.31 kB).
+  - Pure unit and schema test suite: 14 test files passed, 59/59 tests passed.
+  - Database migrations and DB integration workflows remain pending execution against a confirmed dedicated PostgreSQL database (`localhost:5432` currently unreachable).

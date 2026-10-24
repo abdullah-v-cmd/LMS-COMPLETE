@@ -41,5 +41,58 @@ describe('Phase 7 tenant-scoped transport workflows', () => {
     expect((await request(app).post('/api/v1/transport/driver-assignments').set('Authorization', `Bearer ${managerToken}`).send({ vehicleId: vehicle.body.data.id, driverName: 'Driver Two', driverPhone: '1234567890', licenseNumber: `LIC-${Date.now()}`, effectiveFrom: new Date().toISOString() })).status).toBe(201);
     expect((await request(app).post('/api/v1/transport/tracking-logs').set('Authorization', `Bearer ${managerToken}`).send({ vehicleId: vehicle.body.data.id, latitude: 24.86, longitude: 67.0, recordedAt: new Date().toISOString() })).status).toBe(201);
     expect((await request(app).post('/api/v1/transport/incidents').set('Authorization', `Bearer ${managerToken}`).send({ routeId: route.body.data.id, vehicleId: vehicle.body.data.id, studentId: student.id, category: 'SAFETY', description: 'Seat belt latch needs repair', occurredAt: new Date().toISOString() })).status).toBe(201);
+
+    // Transport Attendance: marking, idempotency / duplicate prevention
+    const today = new Date().toISOString().slice(0, 10);
+    const markRes = await request(app).post('/api/v1/transport/attendance').set('Authorization', `Bearer ${managerToken}`).send({
+      allocationId: allocation.body.data.id,
+      serviceDate: today,
+      status: 'BOARDED',
+      remarks: 'Boarded at North Gate stop on time',
+    });
+    expect(markRes.status).toBe(200);
+    expect(markRes.body.data.status).toBe('BOARDED');
+
+    // Duplicate submission updates existing record (upsert)
+    const updateRes = await request(app).post('/api/v1/transport/attendance').set('Authorization', `Bearer ${managerToken}`).send({
+      allocationId: allocation.body.data.id,
+      serviceDate: today,
+      status: 'ABSENT',
+      remarks: 'Guardian called, student absent',
+    });
+    expect(updateRes.status).toBe(200);
+    expect(updateRes.body.data.status).toBe('ABSENT');
+
+    // Monthly Charge & Invoice Generation
+    const period = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+    const chargeRes = await request(app).post('/api/v1/transport/charges/generate').set('Authorization', `Bearer ${managerToken}`).send({
+      allocationId: allocation.body.data.id,
+      period,
+      dueDate: new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10),
+    });
+    expect(chargeRes.status).toBe(201);
+    expect(chargeRes.body.data.created).toBe(true);
+    expect(Number(chargeRes.body.data.charge.amount)).toBe(2500);
+    expect(chargeRes.body.data.invoice.invoiceNumber).toMatch(/^TRN-/);
+    expect(Number(chargeRes.body.data.invoice.totalAmount)).toBe(2500);
+
+    // Retrying the same charge is idempotent
+    const retryRes = await request(app).post('/api/v1/transport/charges/generate').set('Authorization', `Bearer ${managerToken}`).send({
+      allocationId: allocation.body.data.id,
+      period,
+      dueDate: new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10),
+    });
+    expect(retryRes.status).toBe(200);
+    expect(retryRes.body.data.created).toBe(false);
+
+    // Verify balanced ledger entries exist for the invoice
+    const ledger = await prisma.financialLedgerEntry.findMany({
+      where: { referenceType: 'TRANSPORT_INVOICE', referenceId: chargeRes.body.data.invoice.id },
+    });
+    expect(ledger.length).toBe(2);
+    const debit = ledger.find((e) => e.accountCode === '1100-ACCOUNTS-RECEIVABLE');
+    const credit = ledger.find((e) => e.accountCode === '4010-TRANSPORT-REVENUE');
+    expect(Number(debit?.debitAmount)).toBe(2500);
+    expect(Number(credit?.creditAmount)).toBe(2500);
   });
 });

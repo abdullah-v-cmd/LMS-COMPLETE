@@ -19,6 +19,7 @@ import {
   MessageCircle,
   ClipboardList,
   Banknote,
+  BarChart3,
 } from 'lucide-react';
 
 interface NavItem {
@@ -155,6 +156,18 @@ export const Sidebar: React.FC = () => {
       to: '/counseling',
       icon: HeartHandshake,
       roles: ['ROLE_COUNSELOR', 'ROLE_CLASS_TEACHER', 'ROLE_SUBJECT_TEACHER', 'ROLE_PARENT'],
+    },
+    {
+      name: 'Analytics',
+      to: '/analytics',
+      icon: BarChart3,
+      roles: [
+        'ROLE_SUPER_ADMIN', 'ROLE_INSTITUTION_ADMIN', 'ROLE_ACADEMIC_HEAD',
+        'ROLE_SUBJECT_TEACHER', 'ROLE_CLASS_TEACHER', 'ROLE_TEACHING_ASSISTANT',
+        'ROLE_EXAM_CONTROLLER', 'ROLE_FINANCE_HEAD', 'ROLE_FEE_CLERK',
+        'ROLE_LIBRARIAN', 'ROLE_TRANSPORT_COORDINATOR', 'ROLE_HOSTEL_WARDEN',
+        'ROLE_COUNSELOR', 'ROLE_AUDITOR', 'ROLE_PARENT', 'ROLE_STUDENT',
+      ],
     },
     {
       name: 'Audit Logs',
