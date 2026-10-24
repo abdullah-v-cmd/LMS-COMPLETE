@@ -175,8 +175,12 @@ model Institution {
   announcements      Announcement[]
   notifications      Notification[]
   books              BookCatalog[]
+  libraryReservations LibraryReservation[]
+  libraryInventoryAudits LibraryInventoryAudit[]
   libraryFinePolicy  LibraryFinePolicy?
   transportRoutes    TransportRoute[]
+  transportIncidents TransportIncident[]
+  transportGpsLogs   TransportVehicleTrackingLog[]
   hostelBlocks       HostelBlock[]
   hostelGatePasses   HostelGatePass[]
   hostelVisitorLogs  HostelVisitorLog[]
@@ -455,7 +459,9 @@ model StudentProfile {
   reportCards       StudentReportCard[]
   feeInvoices       StudentFeeInvoice[]
   borrowRecords     BookBorrowRecord[]
+  libraryReservations LibraryReservation[]
   transportAlloc    StudentTransportAllocation?
+  transportIncidents TransportIncident[]
   hostelAlloc       HostelBedAllocation?
   hostelGatePasses  HostelGatePass[]
   hostelVisitorLogs HostelVisitorLog[]
@@ -1092,6 +1098,8 @@ model BookCatalog {
   institution   Institution        @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   borrowRecords BookBorrowRecord[]
   copies        BookCopy[]
+  reservations  LibraryReservation[]
+  inventoryAudits LibraryInventoryAudit[]
 
   @@map("book_catalogs")
 }
@@ -1103,7 +1111,8 @@ model BookCopy {
   status    String   @default("AVAILABLE")
   createdAt DateTime @default(now())
   book      BookCatalog @relation(fields: [bookId], references: [id], onDelete: Cascade)
-  loan      BookBorrowRecord?
+  loans     BookBorrowRecord[]
+  reservations LibraryReservation[]
   @@index([bookId, status])
   @@map("book_copies")
 }
@@ -1123,7 +1132,7 @@ model LibraryFinePolicy {
 model BookBorrowRecord {
   id             String       @id @default(uuid())
   bookId         String
-  copyId         String?        @unique
+  copyId         String?
   studentId      String
   borrowedAt     DateTime     @default(now())
   dueDate        DateTime
@@ -1131,12 +1140,51 @@ model BookBorrowRecord {
   fineAmount     Decimal      @default(0.00) @db.Decimal(10, 2)
   status         BorrowStatus @default(BORROWED)
   issuedByUserId String
+  lostReportedAt DateTime?
+  recoveredAt    DateTime?
 
   book    BookCatalog    @relation(fields: [bookId], references: [id], onDelete: Cascade)
   copy    BookCopy?      @relation(fields: [copyId], references: [id], onDelete: SetNull)
   student StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   @@map("book_borrow_records")
+}
+
+model LibraryReservation {
+  id             String   @id @default(uuid())
+  institutionId  String
+  bookId         String
+  studentId      String
+  status         String   @default("QUEUED")
+  queuePosition  Int
+  assignedCopyId String?
+  requestedAt    DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  fulfilledAt    DateTime?
+  cancelledAt    DateTime?
+  institution Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  book        BookCatalog @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  student     StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  assignedCopy BookCopy? @relation(fields: [assignedCopyId], references: [id], onDelete: SetNull)
+  @@index([institutionId, bookId, status, queuePosition])
+  @@index([studentId, bookId, status])
+  @@map("library_reservations")
+}
+
+model LibraryInventoryAudit {
+  id                String   @id @default(uuid())
+  institutionId     String
+  bookId            String
+  performedByUserId String
+  expectedCount     Int
+  scannedCount      Int
+  missingBarcodes   String[] @default([])
+  unexpectedBarcodes String[] @default([])
+  createdAt         DateTime @default(now())
+  institution Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  book        BookCatalog @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  @@index([institutionId, bookId, createdAt])
+  @@map("library_inventory_audits")
 }
 
 model TransportRoute {
@@ -1152,6 +1200,8 @@ model TransportRoute {
   institution Institution                  @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   vehicles    TransportVehicle[]
   allocations StudentTransportAllocation[]
+  stops       TransportStop[]
+  incidents   TransportIncident[]
 
   @@map("transport_routes")
 }
@@ -1166,8 +1216,92 @@ model TransportVehicle {
   createdAt     DateTime @default(now())
 
   route TransportRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  documents TransportVehicleDocument[]
+  driverAssignments TransportDriverAssignment[]
+  trackingLogs TransportVehicleTrackingLog[]
+  incidents TransportIncident[]
 
   @@map("transport_vehicles")
+}
+
+model TransportStop {
+  id           String   @id @default(uuid())
+  routeId      String
+  name         String
+  address      String
+  sequence     Int
+  pickupTime   String?
+  dropoffTime  String?
+  createdAt    DateTime @default(now())
+  route        TransportRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  allocations  StudentTransportAllocation[]
+  @@unique([routeId, sequence])
+  @@unique([routeId, name])
+  @@map("transport_stops")
+}
+
+model TransportVehicleDocument {
+  id             String   @id @default(uuid())
+  vehicleId      String
+  documentType   String
+  documentNumber String
+  expiresAt      DateTime?
+  createdAt      DateTime @default(now())
+  vehicle        TransportVehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  @@index([vehicleId, expiresAt])
+  @@map("transport_vehicle_documents")
+}
+
+model TransportDriverAssignment {
+  id             String   @id @default(uuid())
+  vehicleId      String
+  driverName     String
+  driverPhone    String
+  licenseNumber  String
+  effectiveFrom  DateTime
+  effectiveTo    DateTime?
+  assignedByUserId String
+  createdAt      DateTime @default(now())
+  vehicle        TransportVehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  @@index([vehicleId, effectiveFrom, effectiveTo])
+  @@map("transport_driver_assignments")
+}
+
+model TransportVehicleTrackingLog {
+  id                String   @id @default(uuid())
+  institutionId     String
+  vehicleId         String
+  latitude          Float
+  longitude         Float
+  recordedAt        DateTime
+  source            String   @default("MANUAL")
+  recordedByUserId  String
+  createdAt         DateTime @default(now())
+  institution Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  vehicle     TransportVehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  @@index([institutionId, vehicleId, recordedAt])
+  @@map("transport_vehicle_tracking_logs")
+}
+
+model TransportIncident {
+  id                String   @id @default(uuid())
+  institutionId     String
+  routeId           String
+  vehicleId         String?
+  studentId         String?
+  category          String
+  description       String
+  occurredAt        DateTime
+  status            String   @default("OPEN")
+  recordedByUserId  String
+  resolvedAt        DateTime?
+  createdAt         DateTime @default(now())
+  institution Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  route       TransportRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  vehicle     TransportVehicle? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  student     StudentProfile? @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  @@index([institutionId, status, occurredAt])
+  @@map("transport_incidents")
 }
 
 model StudentTransportAllocation {
@@ -1175,10 +1309,12 @@ model StudentTransportAllocation {
   studentId   String   @unique
   routeId     String
   pickupStop  String
+  pickupStopId String?
   allocatedAt DateTime @default(now())
 
   student StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
   route   TransportRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  stop    TransportStop? @relation(fields: [pickupStopId], references: [id], onDelete: SetNull)
 
   @@map("student_transport_allocations")
 }

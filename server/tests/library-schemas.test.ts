@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bookSchema, borrowSchema, finePolicySchema, barcodeSchema } from '../src/modules/library/library.schemas';
+import { bookSchema, borrowSchema, finePolicySchema, barcodeSchema, inventoryAuditSchema } from '../src/modules/library/library.schemas';
 
 describe('Library request validation', () => {
   it('validates catalog fields and positive integer inventory', () => {
@@ -9,6 +9,11 @@ describe('Library request validation', () => {
     expect(bookSchema.safeParse({ ...valid, title: ' ' }).success).toBe(false);
   });
 
+  it('requires inventory audit scans to be unique and bounded', () => {
+    const bookId = 'a0184c98-7f09-4b16-a22c-95b8dbf2a010';
+    expect(inventoryAuditSchema.safeParse({ bookId, barcodes: ['LIB-a-1', 'LIB-a-2'] }).success).toBe(true);
+    expect(inventoryAuditSchema.safeParse({ bookId, barcodes: ['LIB-a-1', 'LIB-a-1'] }).success).toBe(false);
+  });
   it('validates scanner-friendly barcode identifiers', () => {
     expect(barcodeSchema.safeParse({ barcode: 'LIB-book-1' }).success).toBe(true);
     expect(barcodeSchema.safeParse({ barcode: 'bad barcode' }).success).toBe(false);

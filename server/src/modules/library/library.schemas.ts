@@ -6,3 +6,7 @@ export const recordIdSchema = z.object({ id: z.string().uuid() });
 export const finePolicySchema = z.object({ dailyFine: z.number().finite().min(0).max(100000).refine((n) => Math.round(n * 100) === n * 100, 'Fine rate must have at most two decimal places'), currencyCode: z.string().regex(/^[A-Z]{3}$/) });
 
 export const barcodeSchema = z.object({ barcode: z.string().trim().min(1).max(100).regex(/^[A-Za-z0-9-]+$/) });
+export const reservationSchema = z.object({ bookId: z.string().uuid() }).strict();
+export const inventoryAuditSchema = z.object({ bookId: z.string().uuid(), barcodes: z.array(z.string().trim().min(1).max(100).regex(/^[A-Za-z0-9-]+$/)).max(20000) }).strict().superRefine((data, ctx) => {
+  if (new Set(data.barcodes).size !== data.barcodes.length) ctx.addIssue({ code: 'custom', path: ['barcodes'], message: 'A barcode may only be scanned once per audit' });
+});

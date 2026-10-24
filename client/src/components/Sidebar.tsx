@@ -141,7 +141,7 @@ export const Sidebar: React.FC = () => {
       name: 'Transport',
       to: '/transport',
       icon: Bus,
-      roles: ['ROLE_SUPER_ADMIN', 'ROLE_INSTITUTION_ADMIN', 'ROLE_TRANSPORT_COORDINATOR'],
+      roles: ['ROLE_SUPER_ADMIN', 'ROLE_INSTITUTION_ADMIN', 'ROLE_TRANSPORT_COORDINATOR', 'ROLE_PARENT', 'ROLE_STUDENT'],
     },
     { name: 'Payroll', to: '/payroll', icon: Banknote, roles: ['ROLE_INSTITUTION_ADMIN', 'ROLE_FINANCE_HEAD'] },
     {

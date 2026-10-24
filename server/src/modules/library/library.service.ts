@@ -46,11 +46,23 @@ export class LibraryService {
       ]);
       if (!book || !student) throw { status: 404, message: 'Book or enrolled student not found in this institution' };
       if (openLoan) throw { status: 409, message: 'Student already has an open loan for this book' };
-      const copy = await tx.bookCopy.findFirst({ where: { bookId: book.id, status: 'AVAILABLE' }, select: { id: true } });
-      if (copy) { const copyClaimed = await tx.bookCopy.updateMany({ where: { id: copy.id, status: 'AVAILABLE' }, data: { status: 'CHECKED_OUT' } }); if (copyClaimed.count !== 1) throw { status: 409, message: 'Copy is no longer available' }; }
-      const claimed = await tx.bookCatalog.updateMany({ where: { id: book.id, institutionId, availableCopies: { gt: 0 } }, data: { availableCopies: { decrement: 1 } } });
-      if (claimed.count !== 1) throw { status: 409, message: 'No available copies remain' };
-      return tx.bookBorrowRecord.create({ data: { bookId: book.id, copyId: copy?.id, studentId: student.id, issuedByUserId: issuerId, dueDate: new Date(`${data.dueDate}T23:59:59.999Z`) } });
+      const ready = await tx.libraryReservation.findFirst({ where: { institutionId, bookId: book.id, studentId: student.id, status: 'READY' }, select: { id: true, assignedCopyId: true } });
+      let copyId: string | undefined;
+      if (ready?.assignedCopyId) {
+        const copyClaimed = await tx.bookCopy.updateMany({ where: { id: ready.assignedCopyId, bookId: book.id, status: 'RESERVED' }, data: { status: 'CHECKED_OUT' } });
+        if (copyClaimed.count !== 1) throw { status: 409, message: 'Reserved copy is no longer available' };
+        copyId = ready.assignedCopyId;
+        await tx.libraryReservation.update({ where: { id: ready.id }, data: { status: 'FULFILLED', fulfilledAt: new Date(), assignedCopyId: null } });
+      } else {
+        const copy = await tx.bookCopy.findFirst({ where: { bookId: book.id, status: 'AVAILABLE' }, select: { id: true } });
+        if (!copy) throw { status: 409, message: 'No available copies remain; join the reservation queue' };
+        const copyClaimed = await tx.bookCopy.updateMany({ where: { id: copy.id, status: 'AVAILABLE' }, data: { status: 'CHECKED_OUT' } });
+        if (copyClaimed.count !== 1) throw { status: 409, message: 'Copy is no longer available' };
+        const claimed = await tx.bookCatalog.updateMany({ where: { id: book.id, institutionId, availableCopies: { gt: 0 } }, data: { availableCopies: { decrement: 1 } } });
+        if (claimed.count !== 1) throw { status: 409, message: 'No available copies remain' };
+        copyId = copy.id;
+      }
+      return tx.bookBorrowRecord.create({ data: { bookId: book.id, copyId, studentId: student.id, issuedByUserId: issuerId, dueDate: new Date(`${data.dueDate}T23:59:59.999Z`) } });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
@@ -59,7 +71,7 @@ export class LibraryService {
       const loan = await tx.bookBorrowRecord.findFirst({ where: { id: recordId, book: { institutionId } }, select: { id: true, bookId: true, copyId: true, status: true, returnedAt: true, dueDate: true } });
       if (!loan) throw { status: 404, message: 'Loan not found in this institution' };
       if (loan.returnedAt || loan.status === BorrowStatus.RETURNED) throw { status: 409, message: 'Book has already been returned' };
-      if (loan.status === BorrowStatus.LOST) throw { status: 409, message: 'Lost books require a separate recovery and inventory workflow' };
+      if (loan.status === BorrowStatus.LOST) throw { status: 409, message: 'Use the lost-item recovery workflow for a lost book' };
       const changed = await tx.bookBorrowRecord.updateMany({ where: { id: loan.id, returnedAt: null }, data: { returnedAt: new Date(), status: BorrowStatus.RETURNED } });
       if (changed.count !== 1) throw { status: 409, message: 'Loan was already checked in' };
       const finePolicy = await tx.libraryFinePolicy.findUnique({ where: { institutionId } });
@@ -70,10 +82,102 @@ export class LibraryService {
       const overdueDays = Math.max(0, Math.floor((today.getTime() - dueDay.getTime()) / 86400000));
       const fine = finePolicy ? finePolicy.dailyFine.mul(overdueDays) : new Prisma.Decimal(0);
       await tx.bookBorrowRecord.update({ where: { id: loan.id }, data: { fineAmount: fine } });
+      let returnedCopyId = loan.copyId ?? undefined;
       if (loan.copyId) await tx.bookCopy.update({ where: { id: loan.copyId }, data: { status: 'AVAILABLE' } });
-      else { const unlinkedCopy = await tx.bookCopy.findFirst({ where: { bookId: loan.bookId, status: 'CHECKED_OUT', loan: { is: null } }, select: { id: true } }); if (unlinkedCopy) await tx.bookCopy.update({ where: { id: unlinkedCopy.id }, data: { status: 'AVAILABLE' } }); }
-      await tx.bookCatalog.update({ where: { id: loan.bookId }, data: { availableCopies: { increment: 1 } } });
+      else { const unlinkedCopy = await tx.bookCopy.findFirst({ where: { bookId: loan.bookId, status: 'CHECKED_OUT', loans: { none: {} } }, select: { id: true } }); if (unlinkedCopy) { returnedCopyId = unlinkedCopy.id; await tx.bookCopy.update({ where: { id: unlinkedCopy.id }, data: { status: 'AVAILABLE' } }); } }
+      const waiting = await tx.libraryReservation.findFirst({ where: { institutionId, bookId: loan.bookId, status: 'QUEUED' }, orderBy: [{ queuePosition: 'asc' }, { requestedAt: 'asc' }] });
+      if (waiting && returnedCopyId) {
+        await tx.bookCopy.update({ where: { id: returnedCopyId }, data: { status: 'RESERVED' } });
+        await tx.libraryReservation.update({ where: { id: waiting.id }, data: { status: 'READY', assignedCopyId: returnedCopyId } });
+      } else {
+        await tx.bookCatalog.update({ where: { id: loan.bookId }, data: { availableCopies: { increment: 1 } } });
+      }
       return tx.bookBorrowRecord.findUniqueOrThrow({ where: { id: loan.id } });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
+
+  static reservations(institutionId: string, studentId?: string) {
+    return prisma.libraryReservation.findMany({ where: { institutionId, ...(studentId ? { studentId } : {}) }, include: { book: { select: { id: true, title: true, author: true } }, student: { select: { id: true, admissionNumber: true, user: { select: { firstName: true, lastName: true } } } } }, orderBy: [{ bookId: 'asc' }, { queuePosition: 'asc' }] });
+  }
+
+  static async createReservation(institutionId: string, studentId: string, bookId: string) {
+    return prisma.$transaction(async (tx) => {
+      const [book, student, existing, queueTail] = await Promise.all([
+        tx.bookCatalog.findFirst({ where: { id: bookId, institutionId }, select: { id: true } }),
+        tx.studentProfile.findFirst({ where: { id: studentId, institutionId, status: 'ENROLLED' }, select: { id: true } }),
+        tx.libraryReservation.findFirst({ where: { institutionId, bookId, studentId, status: { in: ['QUEUED', 'READY'] } }, select: { id: true } }),
+        tx.libraryReservation.aggregate({ where: { institutionId, bookId, status: { in: ['QUEUED', 'READY'] } }, _max: { queuePosition: true } }),
+      ]);
+      if (!book || !student) throw { status: 404, message: 'Book or enrolled student not found in this institution' };
+      if (existing) throw { status: 409, message: 'An active reservation already exists for this book' };
+      const queuePosition = (queueTail._max.queuePosition ?? 0) + 1;
+      const copy = await tx.bookCopy.findFirst({ where: { bookId, status: 'AVAILABLE' }, orderBy: { barcode: 'asc' }, select: { id: true } });
+      if (copy) {
+        const claimed = await tx.bookCopy.updateMany({ where: { id: copy.id, status: 'AVAILABLE' }, data: { status: 'RESERVED' } });
+        if (claimed.count !== 1) throw { status: 409, message: 'Copy is no longer available' };
+        await tx.bookCatalog.update({ where: { id: bookId }, data: { availableCopies: { decrement: 1 } } });
+      }
+      return tx.libraryReservation.create({ data: { institutionId, bookId, studentId, queuePosition, status: copy ? 'READY' : 'QUEUED', assignedCopyId: copy?.id } });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  static async cancelReservation(institutionId: string, reservationId: string, studentId?: string) {
+    return prisma.$transaction(async (tx) => {
+      const reservation = await tx.libraryReservation.findFirst({ where: { id: reservationId, institutionId, ...(studentId ? { studentId } : {}), status: { in: ['QUEUED', 'READY'] } } });
+      if (!reservation) throw { status: 404, message: 'Active reservation not found in this institution' };
+      await tx.libraryReservation.update({ where: { id: reservation.id }, data: { status: 'CANCELLED', cancelledAt: new Date(), assignedCopyId: null } });
+      if (reservation.assignedCopyId) {
+        const next = await tx.libraryReservation.findFirst({ where: { institutionId, bookId: reservation.bookId, status: 'QUEUED', id: { not: reservation.id } }, orderBy: [{ queuePosition: 'asc' }, { requestedAt: 'asc' }] });
+        if (next) await tx.libraryReservation.update({ where: { id: next.id }, data: { status: 'READY', assignedCopyId: reservation.assignedCopyId } });
+        else {
+          await tx.bookCopy.update({ where: { id: reservation.assignedCopyId }, data: { status: 'AVAILABLE' } });
+          await tx.bookCatalog.update({ where: { id: reservation.bookId }, data: { availableCopies: { increment: 1 } } });
+        }
+      }
+      return tx.libraryReservation.findUniqueOrThrow({ where: { id: reservation.id } });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  static async reportLost(institutionId: string, loanId: string) {
+    return prisma.$transaction(async (tx) => {
+      const loan = await tx.bookBorrowRecord.findFirst({ where: { id: loanId, book: { institutionId } }, select: { id: true, bookId: true, copyId: true, returnedAt: true, status: true } });
+      if (!loan) throw { status: 404, message: 'Loan not found in this institution' };
+      if (loan.returnedAt || loan.status !== BorrowStatus.BORROWED) throw { status: 409, message: 'Only an open borrowed item can be reported lost' };
+      await tx.bookBorrowRecord.update({ where: { id: loan.id }, data: { status: BorrowStatus.LOST, lostReportedAt: new Date() } });
+      if (loan.copyId) await tx.bookCopy.update({ where: { id: loan.copyId }, data: { status: 'LOST' } });
+      await tx.bookCatalog.update({ where: { id: loan.bookId }, data: { totalCopies: { decrement: 1 } } });
+      return tx.bookBorrowRecord.findUniqueOrThrow({ where: { id: loan.id } });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  static async recoverLost(institutionId: string, loanId: string) {
+    return prisma.$transaction(async (tx) => {
+      const loan = await tx.bookBorrowRecord.findFirst({ where: { id: loanId, book: { institutionId } }, select: { id: true, bookId: true, copyId: true, status: true, returnedAt: true } });
+      if (!loan) throw { status: 404, message: 'Loan not found in this institution' };
+      if (loan.status !== BorrowStatus.LOST || loan.returnedAt) throw { status: 409, message: 'Only an unrecovered lost item can be recovered' };
+      if (!loan.copyId) throw { status: 409, message: 'Legacy lost loan has no copy identity to recover' };
+      await tx.bookCopy.update({ where: { id: loan.copyId }, data: { status: 'AVAILABLE' } });
+      await tx.bookBorrowRecord.update({ where: { id: loan.id }, data: { status: BorrowStatus.RETURNED, returnedAt: new Date(), recoveredAt: new Date() } });
+      const waiting = await tx.libraryReservation.findFirst({ where: { institutionId, bookId: loan.bookId, status: 'QUEUED' }, orderBy: [{ queuePosition: 'asc' }, { requestedAt: 'asc' }] });
+      if (waiting) {
+        await tx.bookCopy.update({ where: { id: loan.copyId }, data: { status: 'RESERVED' } });
+        await tx.libraryReservation.update({ where: { id: waiting.id }, data: { status: 'READY', assignedCopyId: loan.copyId } });
+      } else await tx.bookCatalog.update({ where: { id: loan.bookId }, data: { totalCopies: { increment: 1 }, availableCopies: { increment: 1 } } });
+      if (waiting) await tx.bookCatalog.update({ where: { id: loan.bookId }, data: { totalCopies: { increment: 1 } } });
+      return tx.bookBorrowRecord.findUniqueOrThrow({ where: { id: loan.id } });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  static async createInventoryAudit(institutionId: string, performedByUserId: string, bookId: string, barcodes: string[]) {
+    const book = await prisma.bookCatalog.findFirst({ where: { id: bookId, institutionId }, include: { copies: { select: { barcode: true, status: true } } } });
+    if (!book) throw { status: 404, message: 'Book not found in this institution' };
+      // Only copies physically expected on-site belong in the shelf scan baseline.
+      const expected = new Set(book.copies.filter((copy) => ['AVAILABLE', 'RESERVED'].includes(copy.status)).map((copy) => copy.barcode));
+    const scanned = new Set(barcodes);
+    const missingBarcodes = [...expected].filter((barcode) => !scanned.has(barcode));
+    const unexpectedBarcodes = [...scanned].filter((barcode) => !expected.has(barcode));
+    return prisma.libraryInventoryAudit.create({ data: { institutionId, bookId, performedByUserId, expectedCount: expected.size, scannedCount: scanned.size, missingBarcodes, unexpectedBarcodes } });
+  }
+
+  static inventoryAudits(institutionId: string) { return prisma.libraryInventoryAudit.findMany({ where: { institutionId }, include: { book: { select: { title: true, isbn: true } } }, orderBy: { createdAt: 'desc' }, take: 200 }); }
 }
