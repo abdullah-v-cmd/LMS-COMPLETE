@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../types';
 import { sendError } from '../utils/response';
 import { UserRole } from '@prisma/client';
+import { prisma } from '../utils/prisma';
 
 export const requireTenant = (
   req: AuthenticatedRequest,
@@ -14,11 +15,19 @@ export const requireTenant = (
 
   // Super Admin can access all tenants or switch scope via header
   if (req.user.role === UserRole.ROLE_SUPER_ADMIN) {
-    const headerTenantId = req.headers['x-institution-id'] as string;
+    const headerTenantId = (req.headers['x-institution-id'] as string) || (req.query.institutionId as string);
     if (headerTenantId) {
       req.institutionId = headerTenantId;
+      return next();
     }
-    return next();
+    // Fallback to first available institution if no specific tenant header provided
+    prisma.institution.findFirst({ select: { id: true }, orderBy: { createdAt: 'asc' } })
+      .then((inst: any) => {
+        if (inst) req.institutionId = inst.id;
+        next();
+      })
+      .catch(next);
+    return;
   }
 
   // For all institutional users, institutionId must exist

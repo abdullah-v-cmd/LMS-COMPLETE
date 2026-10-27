@@ -37,6 +37,7 @@ export const markSubjectAttendanceSchema = z.object({
 const attendanceQueryBaseSchema = z.object({
   sectionId: z.string().uuid().optional(),
   studentId: z.string().uuid().optional(),
+  subjectId: z.string().uuid().optional(),
   startDate: calendarDate.optional(),
   endDate: calendarDate.optional(),
 });

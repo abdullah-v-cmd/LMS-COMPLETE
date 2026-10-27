@@ -8,9 +8,9 @@ export const createAcademicYearSchema = z.object({
 });
 
 export const createClassGradeSchema = z.object({
-  programId: z.string().uuid(),
+  programId: z.string().uuid().optional(),
   name: z.string().min(1, 'Class name is required'),
-  level: z.number().int().min(1).max(12),
+  level: z.coerce.number().int().min(1).max(12),
 });
 
 export const createSectionSchema = z.object({

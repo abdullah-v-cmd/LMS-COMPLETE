@@ -40,6 +40,18 @@ export class AcademicController {
     }
   }
 
+  static async getSections(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const sections = await AcademicService.getSections(
+        req.institutionId!,
+        req.query.classGradeId as string | undefined
+      );
+      return sendSuccess(res, sections);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   static async createSection(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const section = await AcademicService.createSection(req.institutionId!, req.body);
@@ -71,6 +83,35 @@ export class AcademicController {
     try {
       const assignment = await AcademicService.assignTeacher(req.institutionId!, req.body);
       return sendSuccess(res, assignment, 201);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async getTeachers(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const teachers = await AcademicService.getTeachers(req.institutionId!);
+      return sendSuccess(res, teachers);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async getTeacherAssignments(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const teacherId = typeof req.query.teacherId === 'string' ? req.query.teacherId : undefined;
+      const userId = typeof req.query.userId === 'string' ? req.query.userId : undefined;
+      const assignments = await AcademicService.getTeacherAssignments(req.institutionId!, { teacherId, userId });
+      return sendSuccess(res, assignments);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async unassignTeacher(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      await AcademicService.unassignTeacher(req.institutionId!, req.params.id);
+      return sendSuccess(res, { message: 'Teacher assignment removed successfully' });
     } catch (error) {
       next(error);
     }

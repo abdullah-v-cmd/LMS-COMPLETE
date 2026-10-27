@@ -1,0 +1,18 @@
+{
+  "ab7392c5-e3de-4790-b458-b31e5c096929": {
+    "institutionId": "ab7392c5-e3de-4790-b458-b31e5c096929",
+    "bankName": "Global International Reserve Bank",
+    "accountTitle": "EduFlow Main Campus Operations",
+    "accountNumber": "9988-77665544-01",
+    "ibanOrRoutingNumber": "US89CHAS0210000219988776655",
+    "swiftBicCode": "CHASUS33XXX",
+    "branchName": "Financial District Branch",
+    "branchCode": "0441",
+    "currency": "USD",
+    "depositInstructions": "Please include student admission number on all bank slips.",
+    "gatewayProvider": "STRIPE",
+    "isOnlinePaymentEnabled": true,
+    "updatedAt": "2026-10-25T19:35:07.827Z",
+    "updatedBy": "superadmin@alpha.edu (ROLE_SUPER_ADMIN)"
+  }
+}

@@ -37,6 +37,7 @@ router.post(
   AcademicController.createClassGrade
 );
 
+router.get('/sections', AcademicController.getSections);
 router.post(
   '/sections',
   requirePermission(PERMISSIONS.ACADEMIC_MANAGE),
@@ -54,12 +55,23 @@ router.post(
   AcademicController.createSubject
 );
 
+router.get('/teachers', AcademicController.getTeachers);
+
+router.get('/teacher-assignments', AcademicController.getTeacherAssignments);
+
 router.post(
   '/assign-teacher',
   requirePermission(PERMISSIONS.ACADEMIC_MANAGE),
   validateRequest({ body: assignTeacherSchema }),
   logAuditEvent('TEACHER_ASSIGNED', 'TeacherAssignment'),
   AcademicController.assignTeacher
+);
+
+router.delete(
+  '/teacher-assignments/:id',
+  requirePermission(PERMISSIONS.ACADEMIC_MANAGE),
+  logAuditEvent('TEACHER_UNASSIGNED', 'TeacherAssignment'),
+  AcademicController.unassignTeacher
 );
 
 export default router;

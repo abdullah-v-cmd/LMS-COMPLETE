@@ -99,10 +99,42 @@ export class ExamsService {
     const assignments = await prisma.teacherAssignment.findMany({ where: { subjectId: schedule.subjectId, ...(teacher ? { teacherId: teacher.id } : {}), section: { classGrade: { institutionId } } }, select: { sectionId: true } });
     const sectionIds = [...new Set(assignments.map((item) => item.sectionId))];
     if (!sectionIds.length) return { schedule, students: [] };
-    const students = await prisma.studentProfile.findMany({ where: { institutionId, sectionId: { in: sectionIds }, status: 'ENROLLED' }, select: { id: true, admissionNumber: true, rollNumber: true, sectionId: true, user: { select: { firstName: true, lastName: true } } }, orderBy: [{ sectionId: 'asc' }, { rollNumber: 'asc' }] });
+    const students = await prisma.studentProfile.findMany({
+      where: { institutionId, sectionId: { in: sectionIds }, status: 'ENROLLED' },
+      select: {
+        id: true,
+        admissionNumber: true,
+        rollNumber: true,
+        sectionId: true,
+        section: {
+          select: {
+            id: true,
+            name: true,
+            classGrade: { select: { id: true, name: true, level: true } },
+          },
+        },
+        user: { select: { firstName: true, lastName: true } },
+      },
+      orderBy: [{ sectionId: 'asc' }, { rollNumber: 'asc' }],
+    });
     const marks = await prisma.examMark.findMany({ where: { examScheduleId: schedule.id, studentId: { in: students.map((student) => student.id) } }, select: { id: true, studentId: true, marksObtained: true, isAbsent: true, remarks: true } });
     const byStudent = new Map(marks.map((mark) => [mark.studentId, mark]));
-    return { schedule, students: students.map((student) => ({ ...student, mark: byStudent.get(student.id) ?? null })) };
+
+    const sections = await prisma.section.findMany({
+      where: { id: { in: sectionIds } },
+      select: { id: true, name: true, classGrade: { select: { id: true, name: true } } },
+    });
+
+    return {
+      schedule,
+      sections: sections.map((s) => ({
+        id: s.id,
+        name: s.name,
+        className: s.classGrade.name,
+        label: `${s.classGrade.name} - ${s.name}`,
+      })),
+      students: students.map((student) => ({ ...student, mark: byStudent.get(student.id) ?? null })),
+    };
   }
 
   static async getPendingGradeChanges(institutionId: string) {
@@ -459,51 +491,126 @@ export class ExamsService {
   }
 
   static async getReportCards(institutionId: string, user: AuthenticatedUser, studentId?: string) {
+    let whereCondition: any = { institutionId };
+
     if (user.role === UserRole.ROLE_STUDENT) {
       const studentProfile = await prisma.studentProfile.findUnique({
         where: { userId: user.id },
       });
       if (!studentProfile || studentProfile.institutionId !== institutionId) return [];
-
-      return prisma.studentReportCard.findMany({
-        where: {
-          institutionId,
-          studentId: studentProfile.id,
-          isPublished: true, // Hidden from students until officially published
-        },
-        include: { examSession: true },
-      });
-    }
-
-    if (user.role === UserRole.ROLE_PARENT) {
+      whereCondition = {
+        institutionId,
+        studentId: studentProfile.id,
+        isPublished: true,
+      };
+    } else if (user.role === UserRole.ROLE_PARENT) {
       const parentProfile = await prisma.parentProfile.findUnique({
         where: { userId: user.id },
       });
       if (!parentProfile) return [];
-
       const relations = await prisma.studentParentRelation.findMany({
         where: { parentId: parentProfile.id, student: { institutionId } },
       });
       const childIds = relations.map((r) => r.studentId);
+      if (childIds.length === 0) return [];
 
-      return prisma.studentReportCard.findMany({
-        where: {
+      if (studentId) {
+        if (!childIds.includes(studentId)) {
+          throw { status: 403, message: 'Access denied: You can only view report cards for your linked children' };
+        }
+        whereCondition = {
+          institutionId,
+          studentId,
+          isPublished: true,
+        };
+      } else {
+        whereCondition = {
           institutionId,
           studentId: { in: childIds },
           isPublished: true,
-        },
-        include: { examSession: true, student: { include: { user: true } } },
-      });
+        };
+      }
+    } else if (studentId) {
+      whereCondition = {
+        institutionId,
+        studentId,
+      };
     }
 
-    return prisma.studentReportCard.findMany({
-      where: {
-        institutionId,
-        ...(studentId && { studentId }),
+    const cards = await prisma.studentReportCard.findMany({
+      where: whereCondition,
+      include: {
+        examSession: {
+          include: {
+            academicTerm: {
+              include: { academicYear: true },
+            },
+          },
+        },
+        student: {
+          include: {
+            user: { select: { firstName: true, lastName: true, email: true } },
+            section: {
+              include: {
+                classGrade: true,
+              },
+            },
+          },
+        },
       },
-      include: { examSession: true, student: { include: { user: true } } },
       orderBy: { createdAt: 'desc' },
     });
+
+    const enrichedCards = await Promise.all(
+      cards.map(async (card) => {
+        const marks = await prisma.examMark.findMany({
+          where: {
+            studentId: card.studentId,
+            examSchedule: { examSessionId: card.examSessionId },
+          },
+          include: {
+            examSchedule: {
+              include: { subject: true },
+            },
+          },
+          orderBy: { examSchedule: { examDate: 'asc' } },
+        });
+
+        const subjectMarks = marks.map((m) => {
+          const max = m.examSchedule.maxMarks;
+          const obtained = m.marksObtained;
+          const pct = max > 0 ? (obtained / max) * 100 : 0;
+          let grade = 'F';
+          if (pct >= 90) grade = 'A+';
+          else if (pct >= 80) grade = 'A';
+          else if (pct >= 70) grade = 'B';
+          else if (pct >= 60) grade = 'C';
+          else if (pct >= 50) grade = 'D';
+
+          return {
+            id: m.id,
+            subjectId: m.examSchedule.subjectId,
+            subjectName: m.examSchedule.subject.name,
+            subjectCode: m.examSchedule.subject.code,
+            maxMarks: max,
+            passMarks: m.examSchedule.passMarks,
+            marksObtained: obtained,
+            percentage: Number(pct.toFixed(1)),
+            isAbsent: m.isAbsent,
+            isPassed: !m.isAbsent && obtained >= m.examSchedule.passMarks,
+            gradeLetter: m.isAbsent ? 'ABS' : grade,
+            remarks: m.remarks,
+          };
+        });
+
+        return {
+          ...card,
+          subjectMarks,
+        };
+      })
+    );
+
+    return enrichedCards;
   }
 
   static async verifyReportCard(institutionId: string, user: AuthenticatedUser, cardId: string, providedSignature: string) {

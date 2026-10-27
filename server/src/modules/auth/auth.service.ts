@@ -66,7 +66,7 @@ export class AuthService {
       select: { permission: true },
     });
 
-    const permissions = Array.from(new Set([...defaultPerms, ...customPerms.map((p) => p.permission)]));
+    const permissions = Array.from(new Set([...defaultPerms, ...customPerms.map((p: { permission: string }) => p.permission)]));
 
     const authUser: AuthenticatedUser = {
       id: user.id,
@@ -180,7 +180,7 @@ export class AuthService {
       },
       select: { permission: true },
     });
-    const permissions = Array.from(new Set([...defaultPerms, ...customPerms.map((p) => p.permission)]));
+    const permissions = Array.from(new Set([...defaultPerms, ...customPerms.map((p: { permission: string }) => p.permission)]));
 
     const authUser: AuthenticatedUser = {
       id: user.id,
@@ -236,5 +236,75 @@ export class AuthService {
     }
 
     return true;
+  }
+
+  static async changePassword(userId: string, currentPasswordPlain: string, newPasswordPlain: string) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw { status: 404, message: 'User not found' };
+
+    const isMatch = await verifyPassword(currentPasswordPlain, user.passwordHash);
+    if (!isMatch) {
+      throw { status: 400, message: 'Current password does not match' };
+    }
+
+    const newHash = await hashPassword(newPasswordPlain);
+    await prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: newHash },
+    });
+
+    await prisma.auditEvent.create({
+      data: {
+        userId,
+        action: 'PASSWORD_CHANGED',
+        entity: 'User',
+        entityId: userId,
+      },
+    });
+
+    return { message: 'Password changed successfully' };
+  }
+
+  static async updateProfile(userId: string, data: { email?: string; firstName?: string; lastName?: string }) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw { status: 404, message: 'User not found' };
+
+    if (data.email && data.email !== user.email) {
+      const existing = await prisma.user.findFirst({
+        where: { email: data.email, NOT: { id: userId } },
+      });
+      if (existing) {
+        throw { status: 400, message: 'Email is already in use by another account' };
+      }
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(data.email ? { email: data.email } : {}),
+        ...(data.firstName ? { firstName: data.firstName } : {}),
+        ...(data.lastName ? { lastName: data.lastName } : {}),
+      },
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        institutionId: true,
+      },
+    });
+
+    await prisma.auditEvent.create({
+      data: {
+        userId,
+        action: 'PROFILE_UPDATED',
+        entity: 'User',
+        entityId: userId,
+      },
+    });
+
+    return updated;
   }
 }

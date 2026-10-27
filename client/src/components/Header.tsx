@@ -1,6 +1,7 @@
 import React from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Bell, LogOut, School, ShieldCheck } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Bell, LogOut, School, ShieldCheck, Settings } from 'lucide-react';
 
 export const Header: React.FC = () => {
   const { user, logout } = useAuth();
@@ -55,6 +56,15 @@ export const Header: React.FC = () => {
             <p className="text-[11px] text-slate-500">{user?.email}</p>
           </div>
         </div>
+
+        <Link
+          to="/settings"
+          aria-label="Account Settings"
+          className="p-2 text-slate-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+          title="Account Settings"
+        >
+          <Settings className="w-5 h-5" aria-hidden="true" />
+        </Link>
 
         <button
           type="button"

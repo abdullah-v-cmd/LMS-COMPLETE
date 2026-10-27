@@ -17,6 +17,11 @@ import { PayrollPage } from './pages/PayrollPage';
 import { HostelPage } from './pages/HostelPage';
 import { CounselingPage } from './pages/CounselingPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
+import { StudentsPage } from './pages/StudentsPage';
+import { SettingsPage } from './pages/SettingsPage';
+import { UsersPage } from './pages/UsersPage';
+import { AcademicPage } from './pages/AcademicPage';
+import { CoursesPage } from './pages/CoursesPage';
 
 export const App: React.FC = () => {
   return (
@@ -31,47 +36,18 @@ export const App: React.FC = () => {
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<DashboardOverview />} />
 
-              {/* Super Admin Only */}
-              <Route element={<ProtectedRoute allowedRoles={['ROLE_SUPER_ADMIN']} />}>
+              {/* Super Admin & Principal User Management */}
+              <Route element={<ProtectedRoute allowedRoles={['ROLE_SUPER_ADMIN', 'ROLE_INSTITUTION_ADMIN']} />}>
                 <Route path="/institutions" element={<InstitutionsPage />} />
+                <Route path="/users" element={<UsersPage />} />
               </Route>
 
               {/* Module Placeholders mapped to active modules */}
-              <Route
-                path="/academic"
-                element={
-                  <div className="bg-white p-6 rounded-2xl border border-slate-200">
-                    <h2 className="text-xl font-bold text-slate-900 mb-2">Academic Structure & Programs</h2>
-                    <p className="text-sm text-slate-600">
-                      Configure Academic Years, Classes, Sections (Grade 10 Section A), and Subjects (MATH-101, PHYS-101).
-                    </p>
-                  </div>
-                }
-              />
+              <Route path="/academic" element={<AcademicPage />} />
 
-              <Route
-                path="/students"
-                element={
-                  <div className="bg-white p-6 rounded-2xl border border-slate-200">
-                    <h2 className="text-xl font-bold text-slate-900 mb-2">Student Information System (SIS)</h2>
-                    <p className="text-sm text-slate-600">
-                      Student enrollment, roll allocations, medical details, and Parent-Student relations.
-                    </p>
-                  </div>
-                }
-              />
+              <Route path="/students" element={<StudentsPage />} />
 
-              <Route
-                path="/courses"
-                element={
-                  <div className="bg-white p-6 rounded-2xl border border-slate-200">
-                    <h2 className="text-xl font-bold text-slate-900 mb-2">Learning Management System (LMS)</h2>
-                    <p className="text-sm text-slate-600">
-                      Interactive course modules, lessons, assignments, and online quizzes.
-                    </p>
-                  </div>
-                }
-              />
+              <Route path="/courses" element={<CoursesPage />} />
 
               <Route path="/attendance" element={<AttendancePage />} />
               <Route path="/communication" element={<CommunicationPage />} />
@@ -109,6 +85,8 @@ export const App: React.FC = () => {
                   </div>
                 }
               />
+
+              <Route path="/settings" element={<SettingsPage />} />
             </Route>
           </Route>
 

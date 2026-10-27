@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const createCourseSchema = z.object({
   subjectId: z.string().uuid(),
   sectionId: z.string().uuid(),
-  teacherId: z.string().uuid(),
+  teacherId: z.string().uuid().optional(),
   academicTermId: z.string().uuid(),
   title: z.string().min(2, 'Course title is required'),
   code: z.string().min(2, 'Course code is required'),
@@ -29,6 +29,8 @@ export const createAssignmentSchema = z.object({
   courseId: z.string().uuid(),
   title: z.string().min(2, 'Assignment title is required'),
   instructions: z.string().min(5, 'Instructions are required'),
+  criteria: z.string().optional(),
+  weightagePercent: z.number().min(0).max(100).optional(),
   maxPoints: z.number().positive().default(100),
   dueDate: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}/)),
   allowLateSubmissions: z.boolean().default(true),

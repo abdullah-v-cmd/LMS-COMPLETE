@@ -6,7 +6,7 @@ import { validateRequest } from '../../middleware/validate';
 import { logAuditEvent } from '../../middleware/audit';
 import { PERMISSIONS } from '../../constants/permissions';
 import { FinanceController } from './finance.controller';
-import { feeStructureSchema, generateInvoicesSchema, recordPaymentSchema, waiverRequestSchema, waiverReviewSchema, waiverIdSchema, refundRequestSchema } from './finance.schemas';
+import { feeStructureSchema, generateInvoicesSchema, recordPaymentSchema, waiverRequestSchema, waiverReviewSchema, waiverIdSchema, refundRequestSchema, bankIntegrationSchema } from './finance.schemas';
 
 const router = Router();
 router.use(requireAuth, requireTenant);
@@ -23,5 +23,7 @@ router.post('/waivers/:id/review', requirePermission(PERMISSIONS.FEE_WAIVER_APPR
 router.post('/refunds', requirePermission(PERMISSIONS.FEE_REFUND_REQUEST), validateRequest({ body: refundRequestSchema }), logAuditEvent('FEE_REFUND_REQUESTED', 'FeeRefundRequest'), FinanceController.requestRefund);
 router.post('/refunds/:id/review', requirePermission(PERMISSIONS.FEE_REFUND_APPROVE), validateRequest({ params: waiverIdSchema, body: waiverReviewSchema }), logAuditEvent('FEE_REFUND_REVIEWED', 'FeeRefundRequest'), FinanceController.reviewRefund);
 router.get('/ledger', requirePermission(PERMISSIONS.LEDGER_READ), FinanceController.getLedger);
+router.get('/bank-settings', requirePermission(PERMISSIONS.FEE_READ), FinanceController.getBankSettings);
+router.put('/bank-settings', requirePermission(PERMISSIONS.FEE_STRUCTURE_MANAGE), validateRequest({ body: bankIntegrationSchema }), logAuditEvent('BANK_SETTINGS_UPDATED', 'BankIntegrationConfig'), FinanceController.updateBankSettings);
 
 export default router;

@@ -173,8 +173,8 @@ async function runLoadBenchmark() {
         where: { institutionId },
         select: { debitAmount: true, creditAmount: true },
       });
-      const debits = entries.reduce((s, e) => s + Number(e.debitAmount), 0);
-      const credits = entries.reduce((s, e) => s + Number(e.creditAmount), 0);
+      const debits = entries.reduce((s: number, e: { debitAmount: any; }) => s + Number(e.debitAmount), 0);
+      const credits = entries.reduce((s: number, e: { creditAmount: any; }) => s + Number(e.creditAmount), 0);
       return Math.abs(debits - credits) < 0.001;
     })
   );

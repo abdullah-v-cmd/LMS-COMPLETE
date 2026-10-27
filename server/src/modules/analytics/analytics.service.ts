@@ -368,16 +368,71 @@ export class AnalyticsService {
         result = { children: (children as any[]).map((c: any) => c.student) };
       }
     } else if (role === UserRole.ROLE_SUBJECT_TEACHER || role === UserRole.ROLE_CLASS_TEACHER) {
-      // Teacher: courses and recent assignments
+      // Teacher: courses, actual assigned subjects, sections, pending grading, and full allocation roster
       const teacher = await prisma.teacherProfile.findFirst({ where: { institutionId, userId: user.id }, select: { id: true } });
       if (!teacher) {
-        result = { teacher: null };
+        result = {
+          teacher: {
+            courses: 0,
+            assignments: 0,
+            assignedSubjectsCount: 0,
+            assignedSectionsCount: 0,
+            totalAllocations: 0,
+            pendingGrading: 0,
+            assignedSubjects: [],
+            allocations: [],
+          },
+        };
       } else {
-        const [courseCount, assignmentCount] = await Promise.all([
+        const [courseCount, assignmentCount, teacherAssignments, pendingGrading] = await Promise.all([
           prisma.course.count({ where: { teacherId: teacher.id, institutionId } }),
           prisma.assignment.count({ where: { course: { teacherId: teacher.id, institutionId } } }),
+          prisma.teacherAssignment.findMany({
+            where: { teacherId: teacher.id, section: { classGrade: { institutionId } } },
+            include: {
+              subject: true,
+              section: { include: { classGrade: true } },
+              academicTerm: { include: { academicYear: true } },
+            },
+          }),
+          prisma.assignmentSubmission.count({
+            where: {
+              assignment: { course: { teacherId: teacher.id, institutionId } },
+              grade: null,
+            },
+          }),
         ]);
-        result = { teacher: { courses: courseCount, assignments: assignmentCount } };
+
+        const uniqueSubjects = Array.from(
+          new Map(
+            teacherAssignments.map((a: any) => [a.subject.id, { id: a.subject.id, name: a.subject.name, code: a.subject.code }])
+          ).values()
+        );
+
+        const uniqueSectionIds = new Set(teacherAssignments.map((a: any) => a.sectionId));
+
+        result = {
+          teacher: {
+            teacherProfileId: teacher.id,
+            courses: courseCount,
+            assignments: assignmentCount,
+            assignedSubjectsCount: uniqueSubjects.length,
+            assignedSectionsCount: uniqueSectionIds.size,
+            totalAllocations: teacherAssignments.length,
+            pendingGrading,
+            assignedSubjects: uniqueSubjects,
+            allocations: teacherAssignments.map((a: any) => ({
+              id: a.id,
+              subjectId: a.subject.id,
+              subjectName: a.subject.name,
+              subjectCode: a.subject.code,
+              sectionId: a.section.id,
+              sectionName: a.section.name,
+              gradeName: a.section.classGrade?.name || 'Class',
+              termName: a.academicTerm?.name || 'Current Term',
+            })),
+          },
+        };
       }
     } else {
       // Admin/HOD/Coordinator: institution-wide summary

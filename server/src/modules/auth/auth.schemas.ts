@@ -11,11 +11,13 @@ export const refreshTokenSchema = z.object({
 });
 
 export const changePasswordSchema = z.object({
-  currentPassword: z.string().min(6, 'Current password is required'),
-  newPassword: z
-    .string()
-    .min(8, 'New password must be at least 8 characters')
-    .regex(/[A-Z]/, 'Must contain at least one uppercase letter')
-    .regex(/[a-z]/, 'Must contain at least one lowercase letter')
-    .regex(/[0-9]/, 'Must contain at least one number'),
+  currentPassword: z.string().min(1, 'Current password is required'),
+  newPassword: z.string().min(6, 'New password must be at least 6 characters'),
 });
+
+export const updateProfileSchema = z.object({
+  email: z.string().email('Valid email address is required').optional(),
+  firstName: z.string().min(1, 'First name cannot be empty').optional(),
+  lastName: z.string().min(1, 'Last name cannot be empty').optional(),
+});
+

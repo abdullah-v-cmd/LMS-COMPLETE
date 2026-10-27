@@ -16,8 +16,23 @@ export const generateInvoicesSchema = z.object({ feeStructureId: z.string().uuid
 export const recordPaymentSchema = z.object({
   invoiceId: z.string().uuid(),
   amount: money,
-  paymentMethod: z.nativeEnum(PaymentMethod).refine((method) => method !== PaymentMethod.ONLINE, 'Online payments require verified payment-provider integration'),
+  paymentMethod: z.enum([PaymentMethod.CASH, PaymentMethod.CHEQUE, PaymentMethod.BANK_TRANSFER]),
   transactionRef: z.string().trim().max(120).optional(),
+});
+export const bankIntegrationSchema = z.object({
+  bankName: z.string().trim().min(2, 'Bank name is required').max(150),
+  accountTitle: z.string().trim().min(2, 'Account title is required').max(150),
+  accountNumber: z.string().trim().min(2, 'Account number is required').max(100),
+  ibanOrRoutingNumber: z.string().trim().max(100).optional().default(''),
+  swiftBicCode: z.string().trim().max(50).optional().default(''),
+  branchName: z.string().trim().max(150).optional().default(''),
+  branchCode: z.string().trim().max(50).optional().default(''),
+  currency: z.string().trim().max(10).default('USD'),
+  depositInstructions: z.string().trim().max(2000).optional().default(''),
+  gatewayProvider: z.enum(['MANUAL_DEPOSIT', 'STRIPE', 'PAYPAL', 'CUSTOM_GATEWAY']).default('MANUAL_DEPOSIT'),
+  gatewayApiKey: z.string().trim().max(255).optional(),
+  gatewayMerchantId: z.string().trim().max(255).optional(),
+  isOnlinePaymentEnabled: z.boolean().default(true),
 });
 export const waiverRequestSchema = z.object({
   invoiceId: z.string().uuid(),

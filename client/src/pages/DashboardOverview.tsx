@@ -1,4 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import {
   Users,
@@ -183,23 +185,238 @@ const AcademicHeadDashboard: React.FC = () => (
   </div>
 );
 
+interface TeacherDashboardAnalytics {
+  teacher: {
+    teacherProfileId: string;
+    courses: number;
+    assignments: number;
+    assignedSubjectsCount: number;
+    assignedSectionsCount: number;
+    totalAllocations: number;
+    pendingGrading: number;
+    assignedSubjects: { id: string; name: string; code: string }[];
+    allocations: {
+      id: string;
+      subjectId: string;
+      subjectName: string;
+      subjectCode: string;
+      sectionId: string;
+      sectionName: string;
+      gradeName: string;
+      termName: string;
+    }[];
+  } | null;
+}
+
 // 4. Class Teacher
-const ClassTeacherDashboard: React.FC = () => (
-  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-    <StatCard title="Homeroom Roster" value="Grade 10-A" icon={Users} change="1 Enrolled Student" color="text-blue-600" />
-    <StatCard title="Daily Attendance" value="Marked" icon={CalendarCheck} change="Today: Present" color="text-emerald-600" />
-    <StatCard title="Behavior Concerns" value="0" icon={HeartHandshake} change="No flags" color="text-slate-600" />
-  </div>
-);
+const ClassTeacherDashboard: React.FC = () => {
+  const { data: dashData, isLoading } = useQuery<TeacherDashboardAnalytics>({
+    queryKey: ['class-teacher-dashboard-analytics'],
+    queryFn: async () => {
+      const res = await apiClient.get('/analytics/dashboard');
+      return res.data.data;
+    },
+    refetchInterval: 30000,
+  });
+
+  const teacher = dashData?.teacher;
+  const subjectsCount = teacher?.assignedSubjectsCount ?? 0;
+  const allocations = teacher?.allocations ?? [];
+  const coursesCount = teacher?.courses ?? 0;
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <StatCard title="Homeroom Roster" value="Grade 10-A" icon={Users} change="1 Enrolled Student" color="text-blue-600" />
+        <StatCard title="Daily Attendance" value="Marked" icon={CalendarCheck} change="Today: Homeroom Logged" color="text-emerald-600" />
+        <StatCard
+          title="Assigned Subjects"
+          value={isLoading ? '...' : String(subjectsCount)}
+          icon={BookOpen}
+          change={teacher?.assignedSubjects.map((s) => s.name).join(', ') || 'Academic Roster'}
+          color="text-indigo-600"
+        />
+        <StatCard
+          title="Active LMS Courses"
+          value={isLoading ? '...' : String(coursesCount)}
+          icon={Award}
+          change={`${allocations.length} total class allocations`}
+          color="text-purple-600"
+        />
+      </div>
+
+      {allocations.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+          <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-100">
+            <div>
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <BookOpen className="w-5 h-5 text-indigo-600" />
+                Teaching Allocations & Subject Assignments
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Official subjects and class sections assigned to your faculty profile.
+              </p>
+            </div>
+            <span className="text-xs font-semibold px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-full border border-indigo-100">
+              {allocations.length} Active {allocations.length === 1 ? 'Allocation' : 'Allocations'}
+            </span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-slate-600 text-xs uppercase tracking-wider font-semibold">
+                <tr>
+                  <th className="py-2.5 px-3 rounded-l-lg">Subject</th>
+                  <th className="py-2.5 px-3">Code</th>
+                  <th className="py-2.5 px-3">Class & Section</th>
+                  <th className="py-2.5 px-3">Academic Term</th>
+                  <th className="py-2.5 px-3 rounded-r-lg text-right">LMS Course Authorization</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {allocations.map((alloc) => (
+                  <tr key={alloc.id} className="hover:bg-slate-50/70 transition">
+                    <td className="py-3 px-3 font-semibold text-slate-900">{alloc.subjectName}</td>
+                    <td className="py-3 px-3 font-mono text-xs text-slate-500">{alloc.subjectCode}</td>
+                    <td className="py-3 px-3 font-medium">{alloc.gradeName} - Section {alloc.sectionName}</td>
+                    <td className="py-3 px-3 text-xs text-slate-500">{alloc.termName}</td>
+                    <td className="py-3 px-3 text-right">
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        Authorized
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 // 5. Subject Teacher
-const SubjectTeacherDashboard: React.FC = () => (
-  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-    <StatCard title="My Courses" value="1" icon={BookOpen} change="MATH-10-A (Adv Math)" color="text-blue-600" />
-    <StatCard title="Pending Grading" value="1" icon={Clock} change="Assignment 1" color="text-amber-600" />
-    <StatCard title="Active Quizzes" value="1" icon={Award} change="Polynomial Basics" color="text-indigo-600" />
-  </div>
-);
+const SubjectTeacherDashboard: React.FC = () => {
+  const { data: dashData, isLoading } = useQuery<TeacherDashboardAnalytics>({
+    queryKey: ['subject-teacher-dashboard-analytics'],
+    queryFn: async () => {
+      const res = await apiClient.get('/analytics/dashboard');
+      return res.data.data;
+    },
+    refetchInterval: 30000,
+  });
+
+  const teacher = dashData?.teacher;
+  const subjectsCount = teacher?.assignedSubjectsCount ?? 0;
+  const sectionsCount = teacher?.assignedSectionsCount ?? 0;
+  const coursesCount = teacher?.courses ?? 0;
+  const pendingGradingCount = teacher?.pendingGrading ?? 0;
+  const allocations = teacher?.allocations ?? [];
+  const assignedSubjects = teacher?.assignedSubjects ?? [];
+
+  return (
+    <div className="space-y-6">
+      {/* Dynamic Key Metric Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          title="Assigned Subjects"
+          value={isLoading ? '...' : String(subjectsCount)}
+          icon={BookOpen}
+          change={assignedSubjects.map((s) => s.name).join(', ') || 'Official Curriculum'}
+          color="text-indigo-600"
+        />
+        <StatCard
+          title="Class Allocations"
+          value={isLoading ? '...' : String(allocations.length)}
+          icon={Users}
+          change={`${sectionsCount} unique class sections`}
+          color="text-blue-600"
+        />
+        <StatCard
+          title="Active LMS Courses"
+          value={isLoading ? '...' : String(coursesCount)}
+          icon={Award}
+          change="Published learning modules"
+          color="text-emerald-600"
+        />
+        <StatCard
+          title="Pending Grading"
+          value={isLoading ? '...' : String(pendingGradingCount)}
+          icon={Clock}
+          change={pendingGradingCount > 0 ? `${pendingGradingCount} awaiting evaluation` : 'All submissions graded'}
+          color={pendingGradingCount > 0 ? 'text-amber-600' : 'text-slate-600'}
+        />
+      </div>
+
+      {/* Official Teaching Allocations & Roster */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-4 mb-4">
+          <div>
+            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <BookOpen className="w-5 h-5 text-indigo-600" />
+              Official Teaching Allocations & Course Authorization Roster
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Verified subjects and classes allocated to your faculty profile by school administration.
+            </p>
+          </div>
+          <span className="text-xs font-semibold px-3 py-1 bg-indigo-50 text-indigo-700 rounded-full border border-indigo-100 self-start sm:self-auto">
+            {allocations.length} Active Teaching {allocations.length === 1 ? 'Allocation' : 'Allocations'}
+          </span>
+        </div>
+
+        {isLoading ? (
+          <div className="py-8 text-center text-sm text-slate-500">Loading teaching assignments...</div>
+        ) : allocations.length === 0 ? (
+          <div className="py-8 text-center text-sm text-slate-500">
+            No teaching subjects or classes are currently allocated to your account. Please contact the Academic Head.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-slate-600 text-xs uppercase tracking-wider font-semibold">
+                <tr>
+                  <th className="py-3 px-4 rounded-l-lg">Subject Name</th>
+                  <th className="py-3 px-4">Subject Code</th>
+                  <th className="py-3 px-4">Grade / Class</th>
+                  <th className="py-3 px-4">Section</th>
+                  <th className="py-3 px-4">Academic Term</th>
+                  <th className="py-3 px-4 rounded-r-lg text-right">LMS Course Permission</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {allocations.map((alloc) => (
+                  <tr key={alloc.id} className="hover:bg-slate-50/70 transition">
+                    <td className="py-3.5 px-4 font-semibold text-slate-900 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-indigo-500 inline-block"></span>
+                      {alloc.subjectName}
+                    </td>
+                    <td className="py-3.5 px-4 font-mono text-xs text-slate-500">{alloc.subjectCode}</td>
+                    <td className="py-3.5 px-4 font-medium">{alloc.gradeName}</td>
+                    <td className="py-3.5 px-4">
+                      <span className="px-2 py-0.5 rounded-md text-xs font-medium bg-slate-100 text-slate-700">
+                        Section {alloc.sectionName}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4 text-xs text-slate-500">{alloc.termName}</td>
+                    <td className="py-3.5 px-4 text-right">
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        Authorized
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 // 6. Teaching Assistant
 const TeachingAssistantDashboard: React.FC = () => (
@@ -274,21 +491,116 @@ const CounselorDashboard: React.FC = () => (
 );
 
 // 14. Parent
-const ParentDashboard: React.FC = () => (
-  <div className="space-y-6">
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <StatCard title="Linked Child" value="Alice Doe" icon={GraduationCap} change="Grade 10 - Section A" color="text-blue-600" />
-      <StatCard title="Attendance Rate" value="100%" icon={CalendarCheck} change="All days present" color="text-emerald-600" />
-      <StatCard title="Outstanding Fee" value="$1,200.00" icon={CreditCard} change="Due Sep 1, 2026" color="text-amber-600" />
+const ParentDashboard: React.FC = () => {
+  const [selectedChildId, setSelectedChildId] = useState<string>('');
+
+  const { data: children = [], isLoading } = useQuery<any[]>({
+    queryKey: ['parent-linked-children'],
+    queryFn: async () => {
+      const res = await apiClient.get('/students');
+      return res.data?.data || [];
+    },
+  });
+
+  const selectedChild =
+    children.find((c) => c.id === selectedChildId) || children[0] || null;
+
+  const { data: invoices = [] } = useQuery<any[]>({
+    queryKey: ['parent-child-invoices', selectedChild?.id],
+    queryFn: async () => {
+      if (!selectedChild) return [];
+      const res = await apiClient.get('/finance/invoices');
+      return (res.data?.data || []).filter((inv: any) => inv.studentId === selectedChild.id);
+    },
+    enabled: Boolean(selectedChild),
+  });
+
+  const totalOutstanding = invoices.reduce(
+    (sum: number, inv: any) => sum + (inv.balanceAmount || 0),
+    0
+  );
+
+  if (isLoading) {
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
+        Loading family records…
+      </div>
+    );
+  }
+
+  if (children.length === 0) {
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center">
+        <Users className="mx-auto mb-3 h-12 w-12 text-slate-400" />
+        <h3 className="text-base font-bold text-slate-800">No Linked Students Found</h3>
+        <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
+          Your parent account is currently not linked to any enrolled student records. Please contact your school administrator to link your child's student admission record.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Child Selector if multiple children */}
+      {children.length > 1 && (
+        <div className="flex flex-col gap-2 rounded-2xl border border-primary-100 bg-primary-50/50 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-sm font-bold text-primary-950">Select Student Portal</h3>
+            <p className="text-xs text-primary-700">You have {children.length} children linked to your parent account.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <label htmlFor="child-select" className="text-xs font-semibold text-slate-600">Child:</label>
+            <select
+              id="child-select"
+              value={selectedChild.id}
+              onChange={(e) => setSelectedChildId(e.target.value)}
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-900 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+            >
+              {children.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.user?.firstName} {c.user?.lastName} ({c.section?.classGrade?.name} - {c.section?.name})
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <StatCard
+          title="Active Student"
+          value={`${selectedChild.user?.firstName} ${selectedChild.user?.lastName}`}
+          icon={GraduationCap}
+          change={`${selectedChild.section?.classGrade?.name || 'Class'} · Section ${selectedChild.section?.name || 'A'} (Adm: ${selectedChild.admissionNumber})`}
+          color="text-blue-600"
+        />
+        <StatCard
+          title="Attendance Status"
+          value="Enrolled & Active"
+          icon={CalendarCheck}
+          change={`Roll Number: ${selectedChild.rollNumber || 'N/A'}`}
+          color="text-emerald-600"
+        />
+        <StatCard
+          title="Outstanding Tuition Balance"
+          value={`$${totalOutstanding.toFixed(2)}`}
+          icon={CreditCard}
+          change={invoices.length > 0 ? `${invoices.length} invoices issued` : 'All invoices settled'}
+          color={totalOutstanding > 0 ? 'text-amber-600' : 'text-emerald-600'}
+        />
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h3 className="text-base font-semibold text-slate-900 mb-2">Student Academic Overview</h3>
+        <p className="text-sm text-slate-600">
+          Showing academic and financial progress for <strong>{selectedChild.user?.firstName} {selectedChild.user?.lastName}</strong>.
+          You can view course lesson materials in LMS, check test marks in Examinations, and download official verified report cards through your parent portal.
+        </p>
+      </div>
     </div>
-    <div className="bg-white p-6 rounded-2xl border border-slate-200">
-      <h3 className="text-base font-semibold text-slate-900 mb-2">Student Progress Overview</h3>
-      <p className="text-sm text-slate-600">
-        Alice is enrolled in <strong>Grade 10 Advanced Mathematics</strong>. Her current assignments and report card are accessible in the LMS and Exam tabs.
-      </p>
-    </div>
-  </div>
-);
+  );
+};
 
 // 15. Student
 const StudentDashboard: React.FC = () => (

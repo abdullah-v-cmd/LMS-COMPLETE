@@ -1,5 +1,15 @@
 import { z } from 'zod';
 
+export const parentInfoSchema = z.object({
+  firstName: z.string().min(1, 'Parent first name is required'),
+  lastName: z.string().min(1, 'Parent last name is required'),
+  email: z.string().email('Invalid parent email address'),
+  phone: z.string().optional(),
+  relationshipType: z.enum(['FATHER', 'MOTHER', 'GUARDIAN']).default('GUARDIAN'),
+  occupation: z.string().optional(),
+  isPrimaryContact: z.boolean().default(true),
+});
+
 export const createStudentSchema = z.object({
   firstName: z.string().min(1, 'First name is required'),
   lastName: z.string().min(1, 'Last name is required'),
@@ -14,12 +24,21 @@ export const createStudentSchema = z.object({
   bloodGroup: z.string().optional(),
   medicalNotes: z.string().optional(),
   emergencyContact: z.string().optional(),
+  parent: parentInfoSchema.optional(),
 });
 
 export const updateStudentSchema = createStudentSchema.partial();
 
 export const linkParentSchema = z.object({
-  parentId: z.string().uuid(),
-  relationshipType: z.enum(['FATHER', 'MOTHER', 'GUARDIAN']),
+  parentId: z.string().uuid().optional(),
+  parentEmail: z.string().email().optional(),
+  relationshipType: z.enum(['FATHER', 'MOTHER', 'GUARDIAN']).default('GUARDIAN'),
   isPrimaryContact: z.boolean().default(false),
 });
+
+export const changeSectionSchema = z.object({
+  sectionId: z.string().uuid('Invalid section ID'),
+  reason: z.string().optional(),
+});
+
+

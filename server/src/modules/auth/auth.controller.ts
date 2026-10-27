@@ -45,4 +45,23 @@ export class AuthController {
       next(error);
     }
   }
+
+  static async changePassword(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const { currentPassword, newPassword } = req.body;
+      const result = await AuthService.changePassword(req.user!.id, currentPassword, newPassword);
+      return sendSuccess(res, result, 200);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async updateProfile(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const result = await AuthService.updateProfile(req.user!.id, req.body);
+      return sendSuccess(res, result, 200);
+    } catch (error) {
+      next(error);
+    }
+  }
 }

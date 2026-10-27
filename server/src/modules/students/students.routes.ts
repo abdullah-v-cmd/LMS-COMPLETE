@@ -5,7 +5,7 @@ import { requireTenant } from '../../middleware/tenant';
 import { requirePermission } from '../../middleware/rbac';
 import { validateRequest } from '../../middleware/validate';
 import { logAuditEvent } from '../../middleware/audit';
-import { createStudentSchema, linkParentSchema } from './students.schemas';
+import { createStudentSchema, linkParentSchema, changeSectionSchema } from './students.schemas';
 import { PERMISSIONS } from '../../constants/permissions';
 
 const router = Router();
@@ -25,12 +25,27 @@ router.post(
   StudentsController.create
 );
 
+router.patch(
+  '/:id/section',
+  requirePermission(PERMISSIONS.STUDENT_UPDATE),
+  validateRequest({ body: changeSectionSchema }),
+  logAuditEvent('STUDENT_SECTION_CHANGED', 'StudentProfile'),
+  StudentsController.changeSection
+);
+
 router.post(
   '/:id/parents',
   requirePermission(PERMISSIONS.STUDENT_UPDATE),
   validateRequest({ body: linkParentSchema }),
   logAuditEvent('PARENT_LINKED', 'StudentParentRelation'),
   StudentsController.linkParent
+);
+
+router.delete(
+  '/:id/parents/:parentId',
+  requirePermission(PERMISSIONS.STUDENT_UPDATE),
+  logAuditEvent('PARENT_UNLINKED', 'StudentParentRelation'),
+  StudentsController.unlinkParent
 );
 
 export default router;

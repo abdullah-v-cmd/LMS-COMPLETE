@@ -1,5 +1,9 @@
 # Deployment and Operations
 
+> [!NOTE]
+> For the complete, production-ready enterprise runbook, Nginx reverse proxy configurations, systemd services, automated backup crons, and zero-downtime database rollout, see [FULL_DEPLOYMENT_GUIDE.md](file:///d:/lms2/FULL_DEPLOYMENT_GUIDE.md).
+> For the complete architectural overview, role matrix, and security audit, see [FULL_PROJECT_DOCUMENTATION.md](file:///d:/lms2/FULL_PROJECT_DOCUMENTATION.md).
+
 ## Readiness
 
 The API liveness endpoint is `GET /api/v1/health`. It reports that the process can serve HTTP. The readiness endpoint is `GET /api/v1/health/ready`; it runs a trivial database query and returns HTTP 503 without connection details when PostgreSQL is unavailable. Configure the platform load balancer to use readiness for traffic routing and liveness for process restart decisions.

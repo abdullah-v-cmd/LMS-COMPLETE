@@ -41,6 +41,12 @@ export const Sidebar: React.FC = () => {
       roles: ['ROLE_SUPER_ADMIN'],
     },
     {
+      name: 'User Management',
+      to: '/users',
+      icon: Users,
+      roles: ['ROLE_SUPER_ADMIN', 'ROLE_INSTITUTION_ADMIN'],
+    },
+    {
       name: 'Academic Structure',
       to: '/academic',
       icon: GraduationCap,
@@ -126,8 +132,11 @@ export const Sidebar: React.FC = () => {
       roles: [
         'ROLE_SUPER_ADMIN',
         'ROLE_INSTITUTION_ADMIN',
+        'ROLE_ACADEMIC_HEAD',
         'ROLE_FINANCE_HEAD',
         'ROLE_FEE_CLERK',
+        'ROLE_CLASS_TEACHER',
+        'ROLE_SUBJECT_TEACHER',
         'ROLE_STUDENT',
         'ROLE_PARENT',
       ],
@@ -175,6 +184,11 @@ export const Sidebar: React.FC = () => {
       icon: Shield,
       roles: ['ROLE_SUPER_ADMIN', 'ROLE_AUDITOR'],
     },
+    {
+      name: 'Account Settings',
+      to: '/settings',
+      icon: Settings,
+    },
   ];
 
   const filteredNav = navItems.filter(
@@ -184,7 +198,7 @@ export const Sidebar: React.FC = () => {
   return (
     <aside aria-label="Main Navigation" className="w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 min-h-screen">
       <div className="h-16 flex items-center px-6 border-b border-slate-800">
-        <span className="text-white font-bold tracking-tight text-lg">ANTIGRAVITY LMS</span>
+        <span className="text-white font-bold tracking-tight text-lg">LMS</span>
       </div>
 
       <nav aria-label="Portal Navigation Links" className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">

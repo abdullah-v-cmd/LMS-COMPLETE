@@ -17,6 +17,9 @@ import { PERMISSIONS } from '../../constants/permissions';
 
 const router = Router();
 
+// Stream or download assignment PDF submission (supports ?token= query param for browser tab/iframe preview)
+router.get('/submissions/:id/attachment', LmsController.getSubmissionAttachment);
+
 router.use(requireAuth);
 router.use(requireTenant);
 
@@ -53,6 +56,12 @@ router.post(
   validateRequest({ body: createAssignmentSchema }),
   logAuditEvent('ASSIGNMENT_CREATED', 'Assignment'),
   LmsController.createAssignment
+);
+
+router.get(
+  '/assignments/:id/submissions',
+  requirePermission(PERMISSIONS.ASSIGNMENT_GRADE),
+  LmsController.getSubmissions
 );
 
 router.post(

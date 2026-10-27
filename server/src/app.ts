@@ -22,6 +22,11 @@ import payrollRoutes from './modules/payroll/payroll.routes';
 import hostelRoutes from './modules/hostel/hostel.routes';
 import counselingRoutes from './modules/counseling/counseling.routes';
 import analyticsRoutes from './modules/analytics/analytics.routes';
+import usersRoutes from './modules/users/users.routes';
+import { systemRoutes } from './modules/system/system.routes';
+import { AcademicController } from './modules/academic/academic.controller';
+import { requireAuth } from './middleware/auth';
+import { requireTenant } from './middleware/tenant';
 
 import { apiRateLimiter } from './middleware/rateLimit';
 
@@ -93,6 +98,9 @@ export const createApp = () => {
   app.use(`${env.API_PREFIX}/hostel`, hostelRoutes);
   app.use(`${env.API_PREFIX}/counseling`, counselingRoutes);
   app.use(`${env.API_PREFIX}/analytics`, analyticsRoutes);
+  app.use(`${env.API_PREFIX}/users`, usersRoutes);
+  app.use(`${env.API_PREFIX}/system`, systemRoutes);
+  app.get(`${env.API_PREFIX}/staff/teachers`, requireAuth, requireTenant, AcademicController.getTeachers);
 
   // 404 Fallback
   app.use((req: Request, res: Response) => {

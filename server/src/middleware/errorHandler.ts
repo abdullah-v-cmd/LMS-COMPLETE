@@ -17,11 +17,12 @@ export const errorHandler = (
   });
 
   if (err instanceof ZodError) {
+    const primaryMsg = err.issues[0]?.message || 'The requested payload failed validation.';
     return sendError(
       res,
       400,
       'VALIDATION_FAILED',
-      'The requested payload failed validation.',
+      primaryMsg,
       err.issues.map((e) => ({
         field: e.path.join('.'),
         message: e.message,

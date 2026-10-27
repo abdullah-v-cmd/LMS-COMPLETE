@@ -4,9 +4,35 @@ import { prisma } from '../utils/prisma';
 import { logger } from '../utils/logger';
 
 export const redactAuditPayload = (value: unknown, additionalFields: string[] = []): unknown => {
-  const redact = new Set(['password', 'passwordhash', 'token', 'secret', 'notes', 'encryptednotes', 'actionplan', ...additionalFields].map((field) => field.toLowerCase()));
+  const redactKeywords = new Set([
+    'password',
+    'passwordhash',
+    'token',
+    'secret',
+    'mfasecret',
+    'apikey',
+    'gatewayapikey',
+    'notes',
+    'encryptednotes',
+    'actionplan',
+    ...additionalFields,
+  ].map((field) => field.toLowerCase()));
+
   if (Array.isArray(value)) return value.map((entry) => redactAuditPayload(entry, additionalFields));
-  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, redact.has(key.toLowerCase()) ? '[REDACTED]' : redactAuditPayload(entry, additionalFields)]));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => {
+        const lowerKey = key.toLowerCase();
+        const shouldRedact =
+          redactKeywords.has(lowerKey) ||
+          lowerKey.includes('password') ||
+          lowerKey.includes('secret') ||
+          lowerKey.includes('token') ||
+          lowerKey.includes('apikey');
+        return [key, shouldRedact ? '[REDACTED]' : redactAuditPayload(entry, additionalFields)];
+      })
+    );
+  }
   return value;
 };
 
