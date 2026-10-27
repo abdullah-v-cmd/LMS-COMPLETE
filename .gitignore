@@ -8,6 +8,7 @@ dist/
 build/
 .next/
 out/
+*.zip
 
 # Environment files
 .env
