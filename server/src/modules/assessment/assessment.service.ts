@@ -14,7 +14,8 @@ const SAFE_USER_SELECT = {
 
 export class AssessmentService {
   /**
-   * Returns subjects and sections assigned to the teacher (or all for Admin/Exam Controller)
+   * Returns subjects and sections assigned strictly to the authenticated teacher.
+   * Exam Department, Super Admin, and non-teachers do NOT have access.
    */
   static async getTeacherAssignments(institutionId: string, user: AuthenticatedUser) {
     const isTeacher = ([
@@ -23,44 +24,27 @@ export class AssessmentService {
       UserRole.ROLE_TEACHING_ASSISTANT,
     ] as string[]).includes(user.role);
 
-    if (isTeacher) {
-      const teacher = await prisma.teacherProfile.findFirst({
-        where: { userId: user.id, institutionId },
-      });
-      if (!teacher) return [];
-
-      const assignments = await prisma.teacherAssignment.findMany({
-        where: { teacherId: teacher.id },
-        include: {
-          subject: true,
-          section: { include: { classGrade: true } },
-          academicTerm: { include: { academicYear: true } },
-        },
-      });
-
-      // Deduplicate by sectionId + subjectId
-      const seen = new Set<string>();
-      return assignments.filter((a) => {
-        const key = `${a.sectionId}:${a.subjectId}:${a.academicTermId}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
+    if (!isTeacher) {
+      return [];
     }
 
-    // Admins / Exam Controllers: return all teacher assignments in the institution
-    const allAssignments = await prisma.teacherAssignment.findMany({
-      where: { subject: { institutionId } },
+    const teacher = await prisma.teacherProfile.findFirst({
+      where: { userId: user.id, institutionId },
+    });
+    if (!teacher) return [];
+
+    const assignments = await prisma.teacherAssignment.findMany({
+      where: { teacherId: teacher.id },
       include: {
         subject: true,
         section: { include: { classGrade: true } },
         academicTerm: { include: { academicYear: true } },
-        teacher: { include: { user: { select: SAFE_USER_SELECT } } },
       },
     });
 
+    // Deduplicate by sectionId + subjectId
     const seen = new Set<string>();
-    return allAssignments.filter((a) => {
+    return assignments.filter((a) => {
       const key = `${a.sectionId}:${a.subjectId}:${a.academicTermId}`;
       if (seen.has(key)) return false;
       seen.add(key);
@@ -69,7 +53,8 @@ export class AssessmentService {
   }
 
   /**
-   * Helper: verify teacher is authorized to manage the subject and section
+   * Helper: verify user is strictly the assigned subject teacher for this subject and section.
+   * Exam Department, Super Admin, and other non-assigned roles are explicitly forbidden.
    */
   private static async assertTeacherAuthorized(
     institutionId: string,
@@ -77,20 +62,27 @@ export class AssessmentService {
     subjectId: string,
     sectionId?: string | null
   ) {
-    const isAdminOrController = ([
-      UserRole.ROLE_SUPER_ADMIN,
-      UserRole.ROLE_INSTITUTION_ADMIN,
-      UserRole.ROLE_ACADEMIC_HEAD,
-      UserRole.ROLE_EXAM_CONTROLLER,
+    const isTeacher = ([
+      UserRole.ROLE_SUBJECT_TEACHER,
+      UserRole.ROLE_CLASS_TEACHER,
+      UserRole.ROLE_TEACHING_ASSISTANT,
     ] as string[]).includes(user.role);
 
-    if (isAdminOrController) return;
+    if (!isTeacher) {
+      throw {
+        status: 403,
+        message: 'Access denied: Only the authorized subject teacher can manage course assessments and results',
+      };
+    }
 
     const teacher = await prisma.teacherProfile.findFirst({
       where: { userId: user.id, institutionId },
     });
     if (!teacher) {
-      throw { status: 403, message: 'You are not an active teacher in this institution' };
+      throw {
+        status: 403,
+        message: 'Access denied: You are not an active teacher in this institution',
+      };
     }
 
     const whereClause: any = {
@@ -106,7 +98,10 @@ export class AssessmentService {
     });
 
     if (!assignment) {
-      throw { status: 403, message: 'You are not assigned to teach this subject and section' };
+      throw {
+        status: 403,
+        message: 'Access denied: You are not assigned as the subject teacher for this subject and section',
+      };
     }
   }
 
@@ -151,6 +146,10 @@ export class AssessmentService {
     academicTermId: string,
     sectionId?: string
   ) {
+    if (user && user.id) {
+      await this.assertTeacherAuthorized(institutionId, user, subjectId, sectionId);
+    }
+
     let scheme = await prisma.assessmentScheme.findFirst({
       where: {
         institutionId,
@@ -376,7 +375,7 @@ export class AssessmentService {
   }
 
   /**
-   * Create an individual assessment item within a category
+   * Create an individual assessment item within a category, with optional easy exam schedule link
    */
   static async createAssessmentItem(
     institutionId: string,
@@ -384,14 +383,16 @@ export class AssessmentService {
     data: {
       assessmentCategoryId: string;
       title: string;
-      description?: string;
-      instructions?: string;
-      attachmentUrl?: string;
+      description?: string | null;
+      instructions?: string | null;
+      attachmentUrl?: string | null;
       maxMarks: number;
       weight?: number;
-      assessmentDate?: string;
-      dueDate?: string;
+      assessmentDate?: string | null;
+      dueDate?: string | null;
       isPublished?: boolean;
+      examScheduleId?: string | null;
+      displayOrder?: number;
     }
   ) {
     const category = await prisma.assessmentCategory.findFirst({
@@ -412,7 +413,26 @@ export class AssessmentService {
       category.assessmentScheme.sectionId
     );
 
-    return prisma.assessmentItem.create({
+    if (data.examScheduleId) {
+      const schedule = await prisma.examSchedule.findFirst({
+        where: {
+          id: data.examScheduleId,
+          subjectId: category.assessmentScheme.subjectId,
+          examSession: {
+            institutionId,
+            academicTermId: category.assessmentScheme.academicTermId,
+          },
+        },
+      });
+      if (!schedule) {
+        throw {
+          status: 404,
+          message: 'Exam schedule not found for this subject and academic term in this institution',
+        };
+      }
+    }
+
+    const item = await prisma.assessmentItem.create({
       data: {
         assessmentCategoryId: data.assessmentCategoryId,
         title: data.title,
@@ -424,9 +444,237 @@ export class AssessmentService {
         assessmentDate: data.assessmentDate ? new Date(data.assessmentDate) : null,
         dueDate: data.dueDate ? new Date(data.dueDate) : null,
         isPublished: data.isPublished ?? false,
+        examScheduleId: data.examScheduleId || null,
+        displayOrder: data.displayOrder ?? 0,
       },
-      include: { category: true },
+      include: {
+        category: true,
+        examSchedule: {
+          include: {
+            examSession: { select: { id: true, name: true, startDate: true, endDate: true, status: true } },
+          },
+        },
+      },
     });
+
+    // If an exam schedule was connected on creation, automatically sync marks immediately!
+    if (data.examScheduleId) {
+      await this.syncExamScheduleMarks(institutionId, user, item.id);
+    }
+
+    return item;
+  }
+
+  /**
+   * Update an individual assessment item within a category
+   */
+  static async updateAssessmentItem(
+    institutionId: string,
+    user: AuthenticatedUser,
+    itemId: string,
+    data: {
+      assessmentCategoryId?: string;
+      title?: string;
+      description?: string | null;
+      instructions?: string | null;
+      attachmentUrl?: string | null;
+      maxMarks?: number;
+      weight?: number;
+      assessmentDate?: string | null;
+      dueDate?: string | null;
+      isPublished?: boolean;
+      examScheduleId?: string | null;
+      displayOrder?: number;
+    }
+  ) {
+    const item = await prisma.assessmentItem.findFirst({
+      where: { id: itemId, category: { assessmentScheme: { institutionId } } },
+      include: {
+        category: {
+          include: {
+            assessmentScheme: true,
+          },
+        },
+      },
+    });
+    if (!item) throw { status: 404, message: 'Assessment item not found' };
+
+    await this.assertTeacherAuthorized(
+      institutionId,
+      user,
+      item.category.assessmentScheme.subjectId,
+      item.category.assessmentScheme.sectionId
+    );
+    await this.assertSchemeNotLockedForTeacher(
+      item.category.assessmentScheme.subjectId,
+      item.category.assessmentScheme.academicTermId,
+      item.category.assessmentScheme.sectionId
+    );
+
+    // If changing category, verify category belongs to same scheme
+    if (data.assessmentCategoryId && data.assessmentCategoryId !== item.assessmentCategoryId) {
+      const targetCategory = await prisma.assessmentCategory.findFirst({
+        where: { id: data.assessmentCategoryId, assessmentSchemeId: item.category.assessmentSchemeId },
+      });
+      if (!targetCategory) throw { status: 400, message: 'Target category does not belong to this assessment scheme' };
+    }
+
+    if (data.examScheduleId && data.examScheduleId !== item.examScheduleId) {
+      const schedule = await prisma.examSchedule.findFirst({
+        where: {
+          id: data.examScheduleId,
+          subjectId: item.category.assessmentScheme.subjectId,
+          examSession: {
+            institutionId,
+            academicTermId: item.category.assessmentScheme.academicTermId,
+          },
+        },
+      });
+      if (!schedule) {
+        throw {
+          status: 404,
+          message: 'Exam schedule not found for this subject and academic term in this institution',
+        };
+      }
+    }
+
+    const previousMaxMarks = item.maxMarks;
+    const previousExamScheduleId = item.examScheduleId;
+
+    const updated = await prisma.assessmentItem.update({
+      where: { id: itemId },
+      data: {
+        ...(data.title !== undefined ? { title: data.title } : {}),
+        ...(data.description !== undefined ? { description: data.description } : {}),
+        ...(data.instructions !== undefined ? { instructions: data.instructions } : {}),
+        ...(data.attachmentUrl !== undefined ? { attachmentUrl: data.attachmentUrl } : {}),
+        ...(data.maxMarks !== undefined ? { maxMarks: data.maxMarks } : {}),
+        ...(data.weight !== undefined ? { weight: data.weight } : {}),
+        ...(data.assessmentDate !== undefined
+          ? { assessmentDate: data.assessmentDate ? new Date(data.assessmentDate) : null }
+          : {}),
+        ...(data.dueDate !== undefined ? { dueDate: data.dueDate ? new Date(data.dueDate) : null } : {}),
+        ...(data.isPublished !== undefined ? { isPublished: data.isPublished } : {}),
+        ...(data.assessmentCategoryId !== undefined ? { assessmentCategoryId: data.assessmentCategoryId } : {}),
+        ...(data.examScheduleId !== undefined ? { examScheduleId: data.examScheduleId || null } : {}),
+        ...(data.displayOrder !== undefined ? { displayOrder: data.displayOrder } : {}),
+      },
+      include: {
+        category: true,
+        examSchedule: {
+          include: {
+            examSession: { select: { id: true, name: true, startDate: true, endDate: true, status: true } },
+          },
+        },
+      },
+    });
+
+    // If newly connected or changed exam schedule, sync marks
+    if (data.examScheduleId && data.examScheduleId !== previousExamScheduleId) {
+      await this.syncExamScheduleMarks(institutionId, user, itemId);
+    } else if (data.maxMarks !== undefined && data.maxMarks !== previousMaxMarks) {
+      // Recalculate results for all students in section
+      const marks = await prisma.studentAssessmentMark.findMany({
+        where: { assessmentItemId: itemId },
+        select: { studentId: true },
+      });
+      for (const m of marks) {
+        await this.recalculateStudentSubjectResult(
+          institutionId,
+          m.studentId,
+          item.category.assessmentScheme.subjectId,
+          item.category.assessmentScheme.sectionId || '',
+          item.category.assessmentScheme.academicTermId,
+          item.category.assessmentSchemeId
+        );
+      }
+    }
+
+    return updated;
+  }
+
+  /**
+   * Delete an individual assessment item and clean up associated marks
+   */
+  static async deleteAssessmentItem(
+    institutionId: string,
+    user: AuthenticatedUser,
+    itemId: string
+  ) {
+    const item = await prisma.assessmentItem.findFirst({
+      where: { id: itemId, category: { assessmentScheme: { institutionId } } },
+      include: {
+        category: {
+          include: {
+            assessmentScheme: true,
+          },
+        },
+        assignment: true,
+      },
+    });
+    if (!item) throw { status: 404, message: 'Assessment item not found' };
+
+    await this.assertTeacherAuthorized(
+      institutionId,
+      user,
+      item.category.assessmentScheme.subjectId,
+      item.category.assessmentScheme.sectionId
+    );
+    await this.assertSchemeNotLockedForTeacher(
+      item.category.assessmentScheme.subjectId,
+      item.category.assessmentScheme.academicTermId,
+      item.category.assessmentScheme.sectionId
+    );
+
+    // Collect affected student IDs before deletion to recalculate results
+    const affectedMarks = await prisma.studentAssessmentMark.findMany({
+      where: { assessmentItemId: itemId },
+      select: { studentId: true },
+    });
+
+    await prisma.$transaction(async (tx) => {
+      // 1. If linked to an LMS Assignment, unlink it
+      if (item.assignment) {
+        await tx.assignment.update({
+          where: { id: item.assignment.id },
+          data: { assessmentItemId: null },
+        });
+      }
+
+      // 2. Delete deadline histories
+      await tx.assessmentDeadlineHistory.deleteMany({
+        where: { assessmentItemId: itemId },
+      });
+
+      // 3. Delete submissions
+      await tx.assessmentSubmissionRecord.deleteMany({
+        where: { assessmentItemId: itemId },
+      });
+
+      // 4. Delete student marks
+      await tx.studentAssessmentMark.deleteMany({
+        where: { assessmentItemId: itemId },
+      });
+
+      // 5. Delete the assessment item
+      await tx.assessmentItem.delete({
+        where: { id: itemId },
+      });
+    });
+
+    // 6. Recalculate section results for affected students
+    for (const m of affectedMarks) {
+      await this.recalculateStudentSubjectResult(
+        institutionId,
+        m.studentId,
+        item.category.assessmentScheme.subjectId,
+        item.category.assessmentScheme.sectionId || '',
+        item.category.assessmentScheme.academicTermId,
+        item.category.assessmentSchemeId
+      );
+    }
+
+    return { message: 'Assessment item deleted successfully', deletedItemId: itemId };
   }
 
   /**

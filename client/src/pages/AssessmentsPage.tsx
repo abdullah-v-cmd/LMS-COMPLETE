@@ -32,6 +32,8 @@ import {
   Unlink,
   RefreshCw,
   Download,
+  Pencil,
+  ShieldAlert,
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
@@ -218,20 +220,15 @@ export const AssessmentsPage: React.FC = () => {
   const roleUpper = String(user?.role || '').toUpperCase();
   const isTeacher =
     roleUpper.includes('TEACHER') || roleUpper.includes('ASSISTANT');
-  const isExamDept =
-    roleUpper.includes('EXAM_CONTROLLER') ||
-    roleUpper.includes('ADMIN') ||
-    roleUpper.includes('HEAD');
   const isStudent = roleUpper.includes('STUDENT');
   const isParent = roleUpper.includes('PARENT');
 
   // Navigation tabs
   const [activeTab, setActiveTab] = useState<
-    'scheme' | 'items' | 'marks' | 'gradebook' | 'results' | 'exam_dept' | 'student_view'
+    'scheme' | 'items' | 'marks' | 'gradebook' | 'results' | 'student_view'
   >(() => {
     if (isStudent || isParent) return 'student_view';
     if (tabParam === 'gradebook') return 'gradebook';
-    if (isExamDept && !isTeacher) return 'exam_dept';
     return 'gradebook';
   });
 
@@ -249,7 +246,7 @@ export const AssessmentsPage: React.FC = () => {
       const res = await apiClient.get('/assessments/teacher/assignments');
       return (res.data.data as TeacherAssignment[]) || [];
     },
-    enabled: isTeacher || isExamDept,
+    enabled: isTeacher,
   });
 
   const currentAssignment = assignmentsQuery.data?.[selectedAssignmentIndex] || null;
@@ -355,7 +352,7 @@ export const AssessmentsPage: React.FC = () => {
         }>;
       };
     },
-    enabled: isExamDept,
+    enabled: false,
   });
 
   // Student Result Query
@@ -412,7 +409,7 @@ export const AssessmentsPage: React.FC = () => {
         }>) || []
       );
     },
-    enabled: Boolean(currentAssignment) && (isTeacher || isExamDept),
+    enabled: Boolean(currentAssignment) && isTeacher,
   });
 
   // Scheme Builder State
@@ -620,7 +617,7 @@ export const AssessmentsPage: React.FC = () => {
     };
   }, [gradebookQuery.data, gradebookStudents]);
 
-  // Modal states
+  // Modal states - Create Item
   const [showItemModal, setShowItemModal] = useState(false);
   const [newItemCategoryId, setNewItemCategoryId] = useState('');
   const [newItemTitle, setNewItemTitle] = useState('');
@@ -628,6 +625,22 @@ export const AssessmentsPage: React.FC = () => {
   const [newItemDueDate, setNewItemDueDate] = useState('');
   const [newItemInstructions, setNewItemInstructions] = useState('');
   const [newItemAttachmentUrl, setNewItemAttachmentUrl] = useState('');
+  const [newItemExamScheduleId, setNewItemExamScheduleId] = useState('');
+
+  // Modal states - Edit Item
+  const [showEditItemModal, setShowEditItemModal] = useState(false);
+  const [editingItem, setEditingItem] = useState<AssessmentItem | null>(null);
+  const [editItemTitle, setEditItemTitle] = useState('');
+  const [editItemCategoryId, setEditItemCategoryId] = useState('');
+  const [editItemMaxMarks, setEditItemMaxMarks] = useState(100);
+  const [editItemDueDate, setEditItemDueDate] = useState('');
+  const [editItemInstructions, setEditItemInstructions] = useState('');
+  const [editItemAttachmentUrl, setEditItemAttachmentUrl] = useState('');
+  const [editItemExamScheduleId, setEditItemExamScheduleId] = useState('');
+
+  // Modal states - Delete Item
+  const [showDeleteItemModal, setShowDeleteItemModal] = useState(false);
+  const [deletingItem, setDeletingItem] = useState<AssessmentItem | null>(null);
 
   // Deadline extension modal
   const [showDeadlineModal, setShowDeadlineModal] = useState(false);
@@ -902,6 +915,7 @@ export const AssessmentsPage: React.FC = () => {
         dueDate: newItemDueDate ? new Date(newItemDueDate).toISOString() : undefined,
         instructions: newItemInstructions,
         attachmentUrl: newItemAttachmentUrl,
+        examScheduleId: newItemExamScheduleId || undefined,
         isPublished: true,
       });
       return res.data;
@@ -913,10 +927,70 @@ export const AssessmentsPage: React.FC = () => {
       setNewItemTitle('');
       setNewItemInstructions('');
       setNewItemAttachmentUrl('');
+      setNewItemExamScheduleId('');
       queryClient.invalidateQueries({ queryKey: ['assessment-scheme'] });
+      queryClient.invalidateQueries({ queryKey: ['unified-gradebook'] });
+      queryClient.invalidateQueries({ queryKey: ['section-results'] });
     },
     onError: (err: any) => {
       setError(err?.response?.data?.message || err.message || 'Failed to create item');
+      setNotice('');
+    },
+  });
+
+  // Update Assessment Item
+  const updateItemMutation = useMutation({
+    mutationFn: async () => {
+      if (!editingItem) return;
+      const res = await apiClient.put(`/assessments/items/${editingItem.id}`, {
+        assessmentCategoryId: editItemCategoryId || undefined,
+        title: editItemTitle,
+        maxMarks: Number(editItemMaxMarks),
+        dueDate: editItemDueDate ? new Date(editItemDueDate).toISOString() : null,
+        instructions: editItemInstructions || null,
+        attachmentUrl: editItemAttachmentUrl || null,
+        examScheduleId: editItemExamScheduleId || null,
+      });
+      return res.data;
+    },
+    onSuccess: () => {
+      setNotice('Assessment item updated successfully.');
+      setError('');
+      setShowEditItemModal(false);
+      setEditingItem(null);
+      queryClient.invalidateQueries({ queryKey: ['assessment-scheme'] });
+      queryClient.invalidateQueries({ queryKey: ['unified-gradebook'] });
+      queryClient.invalidateQueries({ queryKey: ['section-results'] });
+      queryClient.invalidateQueries({ queryKey: ['assessment-marks-roster'] });
+    },
+    onError: (err: any) => {
+      setError(err?.response?.data?.message || err.message || 'Failed to update item');
+      setNotice('');
+    },
+  });
+
+  // Delete Assessment Item
+  const deleteItemMutation = useMutation({
+    mutationFn: async () => {
+      if (!deletingItem) return;
+      const res = await apiClient.delete(`/assessments/items/${deletingItem.id}`);
+      return res.data;
+    },
+    onSuccess: () => {
+      setNotice('Assessment item and associated marks deleted successfully.');
+      setError('');
+      setShowDeleteItemModal(false);
+      setDeletingItem(null);
+      if (selectedItemId === deletingItem?.id) {
+        setSelectedItemId('');
+      }
+      queryClient.invalidateQueries({ queryKey: ['assessment-scheme'] });
+      queryClient.invalidateQueries({ queryKey: ['unified-gradebook'] });
+      queryClient.invalidateQueries({ queryKey: ['section-results'] });
+      queryClient.invalidateQueries({ queryKey: ['assessment-marks-roster'] });
+    },
+    onError: (err: any) => {
+      setError(err?.response?.data?.message || err.message || 'Failed to delete item');
       setNotice('');
     },
   });
@@ -1281,6 +1355,20 @@ export const AssessmentsPage: React.FC = () => {
     },
   });
 
+  if (!isTeacher && !isStudent && !isParent) {
+    return (
+      <div className="p-8 max-w-3xl mx-auto">
+        <div className="bg-rose-50 border border-rose-200 rounded-2xl p-8 text-center shadow-sm">
+          <ShieldAlert className="w-12 h-12 text-rose-500 mx-auto mb-3" />
+          <h2 className="text-xl font-bold text-rose-900">Access Restricted</h2>
+          <p className="mt-2 text-sm text-rose-700 max-w-md mx-auto">
+            Course assessment schemes, grading, and continuous results are strictly managed by the authorized Subject Teacher. Administrators and Exam Department staff do not have direct access.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -1433,26 +1521,6 @@ export const AssessmentsPage: React.FC = () => {
               5. Final Results & Review
             </button>
           </>
-        )}
-
-        {isExamDept && (
-          <button
-            type="button"
-            onClick={() => setActiveTab('exam_dept')}
-            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
-              activeTab === 'exam_dept'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <ShieldCheck className="w-4 h-4" />
-            Exam Department Dashboard
-            {examDeptQuery.data?.pendingCorrections?.length ? (
-              <span className="ml-1 rounded-full bg-amber-500 px-2 py-0.5 text-xs text-white">
-                {examDeptQuery.data.pendingCorrections.length}
-              </span>
-            ) : null}
-          </button>
         )}
 
         {(isStudent || isParent) && (
@@ -1763,6 +1831,43 @@ export const AssessmentsPage: React.FC = () => {
 
                       <div className="mt-4 pt-3 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
+                          {!isSectionLocked && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingItem(item);
+                                setEditItemTitle(item.title);
+                                setEditItemCategoryId(item.assessmentCategoryId || cat.id!);
+                                setEditItemMaxMarks(item.maxMarks);
+                                setEditItemDueDate(item.dueDate ? new Date(item.dueDate).toISOString().slice(0, 16) : '');
+                                setEditItemInstructions(item.instructions || '');
+                                setEditItemAttachmentUrl(item.attachmentUrl || '');
+                                setEditItemExamScheduleId(item.examScheduleId || '');
+                                setShowEditItemModal(true);
+                              }}
+                              className="flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-amber-600"
+                              title="Edit assessment item details, max marks, and exam link"
+                            >
+                              <Pencil className="w-3.5 h-3.5 text-amber-500" />
+                              Edit
+                            </button>
+                          )}
+
+                          {!isSectionLocked && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDeletingItem(item);
+                                setShowDeleteItemModal(true);
+                              }}
+                              className="flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-rose-600"
+                              title="Delete assessment item and clean up marks"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                              Delete
+                            </button>
+                          )}
+
                           {!isSectionLocked && (
                             <button
                               type="button"
@@ -2648,199 +2753,7 @@ export const AssessmentsPage: React.FC = () => {
       )}
 
       {/* ============================================================== */}
-      {/* TAB 5: EXAM DEPARTMENT DASHBOARD & CORRECTION APPROVALS        */}
-      {/* ============================================================== */}
-      {activeTab === 'exam_dept' && isExamDept && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-5">
-            <div>
-              <h2 className="text-lg font-bold text-slate-900">Exam Department Submission Dashboard</h2>
-              <p className="text-xs text-slate-500">
-                Official review, moderation, result publication to transcripts, and teacher correction request approvals.
-              </p>
-            </div>
-
-            {/* Pending Teacher Correction Requests */}
-            {examDeptQuery.data?.pendingCorrections && examDeptQuery.data.pendingCorrections.length > 0 && (
-              <div className="rounded-xl border border-amber-300 bg-amber-50/60 p-4 space-y-3">
-                <div className="flex items-center gap-2 text-sm font-bold text-amber-900">
-                  <RotateCcw className="w-4 h-4 text-amber-600" />
-                  Pending Teacher Correction Requests ({examDeptQuery.data.pendingCorrections.length})
-                </div>
-
-                <div className="overflow-x-auto rounded-lg border border-amber-200 bg-white">
-                  <table className="w-full text-left text-xs text-slate-700">
-                    <thead className="bg-amber-100/50 font-bold text-amber-900 border-b border-amber-200">
-                      <tr>
-                        <th className="px-3 py-2">Subject</th>
-                        <th className="px-3 py-2">Section</th>
-                        <th className="px-3 py-2">Student</th>
-                        <th className="px-3 py-2">Current %</th>
-                        <th className="px-3 py-2">Proposed %</th>
-                        <th className="px-3 py-2">Reason</th>
-                        <th className="px-3 py-2">Teacher</th>
-                        <th className="px-3 py-2 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {examDeptQuery.data.pendingCorrections.map((cr) => (
-                        <tr key={cr.id}>
-                          <td className="px-3 py-2 font-bold text-slate-900">{cr.subject.name}</td>
-                          <td className="px-3 py-2">{cr.section.name}</td>
-                          <td className="px-3 py-2 font-semibold">
-                            {cr.student.user.firstName} {cr.student.user.lastName}
-                          </td>
-                          <td className="px-3 py-2 text-rose-600 font-bold">{cr.currentMarks}%</td>
-                          <td className="px-3 py-2 text-emerald-600 font-bold">{cr.proposedMarks}%</td>
-                          <td className="px-3 py-2 text-slate-600">{cr.reason}</td>
-                          <td className="px-3 py-2 text-slate-500">
-                            {cr.requestedByUser.firstName} {cr.requestedByUser.lastName}
-                          </td>
-                          <td className="px-3 py-2 text-right space-x-1">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                reviewCorrectionMutation.mutate({
-                                  id: cr.id,
-                                  status: 'APPROVED',
-                                  reviewNotes: 'Approved by Exam Department',
-                                })
-                              }
-                              className="px-2.5 py-1 text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded transition"
-                            >
-                              Approve
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                reviewCorrectionMutation.mutate({
-                                  id: cr.id,
-                                  status: 'REJECTED',
-                                  reviewNotes: 'Rejected by Exam Department',
-                                })
-                              }
-                              className="px-2.5 py-1 text-[11px] font-bold text-slate-700 bg-slate-200 hover:bg-slate-300 rounded transition"
-                            >
-                              Reject
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* Submitted Section Results List */}
-            <div className="overflow-x-auto rounded-xl border border-slate-200">
-              <table className="w-full text-left text-xs text-slate-700">
-                <thead className="bg-slate-50 font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200">
-                  <tr>
-                    <th className="px-3 py-3">Subject</th>
-                    <th className="px-3 py-3">Class & Section</th>
-                    <th className="px-3 py-3">Academic Term</th>
-                    <th className="px-3 py-3">Enrolled Students</th>
-                    <th className="px-3 py-3">Submission Status</th>
-                    <th className="px-3 py-3">Submitted At</th>
-                    <th className="px-3 py-3 text-right">Official Exam Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {examDeptQuery.data?.submissions?.map((sub, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/70 transition">
-                      <td className="px-3 py-3 font-bold text-slate-900">
-                        {sub.subjectName}
-                        <div className="text-[10px] text-slate-400 font-mono">{sub.subjectCode}</div>
-                      </td>
-                      <td className="px-3 py-3 font-medium text-slate-700">
-                        {sub.className} ({sub.sectionName})
-                      </td>
-                      <td className="px-3 py-3 text-slate-600">{sub.termName}</td>
-                      <td className="px-3 py-3 font-bold text-slate-800">{sub.studentsCount} students</td>
-                      <td className="px-3 py-3">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-                            sub.status === 'OFFICIALLY_PUBLISHED'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : sub.status === 'APPROVED'
-                              ? 'bg-blue-100 text-blue-800'
-                              : sub.status === 'SUBMITTED_TO_EXAM_DEPARTMENT'
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-slate-100 text-slate-800'
-                          }`}
-                        >
-                          {sub.status}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3 text-slate-500">
-                        {sub.submittedToExamDeptAt
-                          ? new Date(sub.submittedToExamDeptAt).toLocaleDateString()
-                          : '—'}
-                      </td>
-                      <td className="px-3 py-3 text-right space-x-1.5">
-                        {/* Officially Publish to Transcript */}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            examDeptReviewMutation.mutate({
-                              subjectId: sub.subjectId,
-                              sectionId: sub.sectionId,
-                              academicTermId: sub.academicTermId,
-                              status: 'OFFICIALLY_PUBLISHED',
-                              notes: 'Officially published by Exam Controller',
-                            })
-                          }
-                          className="px-2.5 py-1 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition"
-                        >
-                          Officially Publish
-                        </button>
-
-                        {/* Approve */}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            examDeptReviewMutation.mutate({
-                              subjectId: sub.subjectId,
-                              sectionId: sub.sectionId,
-                              academicTermId: sub.academicTermId,
-                              status: 'APPROVED',
-                              notes: 'Approved by Exam Department',
-                            })
-                          }
-                          className="px-2.5 py-1 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition"
-                        >
-                          Approve
-                        </button>
-
-                        {/* Return for Correction */}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            examDeptReviewMutation.mutate({
-                              subjectId: sub.subjectId,
-                              sectionId: sub.sectionId,
-                              academicTermId: sub.academicTermId,
-                              status: 'RETURNED_FOR_CORRECTION',
-                              notes: 'Returned to teacher for correction',
-                            })
-                          }
-                          className="px-2.5 py-1 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition"
-                        >
-                          Return
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================== */}
-      {/* TAB 6: STUDENT & PARENT VIEW                                    */}
+      {/* TAB 5: STUDENT & PARENT VIEW                                    */}
       {/* ============================================================== */}
       {activeTab === 'student_view' && (
         <div className="space-y-6">
@@ -3029,6 +2942,27 @@ export const AssessmentsPage: React.FC = () => {
               </div>
 
               <div>
+                <label className="font-bold text-slate-700 block mb-1">
+                  Connect to Term Exam Schedule (Optional)
+                </label>
+                <select
+                  value={newItemExamScheduleId}
+                  onChange={(e) => setNewItemExamScheduleId(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs bg-slate-50 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">-- None / Standalone Assessment Item --</option>
+                  {examSchedulesQuery.data?.map((sch) => (
+                    <option key={sch.id} value={sch.id}>
+                      {sch.examSession?.name || 'Exam'} · {new Date(sch.examDate).toLocaleDateString()} [Max: {sch.maxMarks}, Pass: {sch.passingMarks}]
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Select an exam schedule (e.g. Midterm or Final) to automatically link exam marks and sync live into student grades.
+                </p>
+              </div>
+
+              <div>
                 <label className="font-bold text-slate-700 block mb-1">Instructions / Description</label>
                 <textarea
                   rows={3}
@@ -3066,6 +3000,185 @@ export const AssessmentsPage: React.FC = () => {
                 className="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg"
               >
                 {createItemMutation.isPending ? 'Creating...' : 'Create Assessment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL: EDIT ASSESSMENT ITEM                                    */}
+      {/* ============================================================== */}
+      {showEditItemModal && editingItem && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 max-w-lg w-full p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <Pencil className="w-5 h-5 text-amber-500" />
+                Edit Assessment Item
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowEditItemModal(false)}
+                className="text-slate-400 hover:text-slate-600 font-bold text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Title</label>
+                <input
+                  type="text"
+                  value={editItemTitle}
+                  onChange={(e) => setEditItemTitle(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              {schemeQuery.data?.categories && schemeQuery.data.categories.length > 1 && (
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Assessment Category</label>
+                  <select
+                    value={editItemCategoryId}
+                    onChange={(e) => setEditItemCategoryId(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs bg-slate-50 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    {schemeQuery.data.categories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name} ({cat.weightagePercentage}% weightage)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Maximum Marks</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={editItemMaxMarks}
+                    onChange={(e) => setEditItemMaxMarks(Number(e.target.value))}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Due Date</label>
+                  <input
+                    type="datetime-local"
+                    value={editItemDueDate}
+                    onChange={(e) => setEditItemDueDate(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">
+                  Connect to Term Exam Schedule (Optional)
+                </label>
+                <select
+                  value={editItemExamScheduleId}
+                  onChange={(e) => setEditItemExamScheduleId(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs bg-slate-50 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">-- None / Standalone Assessment Item --</option>
+                  {examSchedulesQuery.data?.map((sch) => (
+                    <option key={sch.id} value={sch.id}>
+                      {sch.examSession?.name || 'Exam'} · {new Date(sch.examDate).toLocaleDateString()} [Max: {sch.maxMarks}, Pass: {sch.passingMarks}]
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Easily link this assessment to the examination timetable. Changing or setting an exam automatically syncs marks for your students.
+                </p>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Instructions / Description</label>
+                <textarea
+                  rows={3}
+                  value={editItemInstructions}
+                  onChange={(e) => setEditItemInstructions(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Attachment / Reference URL</label>
+                <input
+                  type="text"
+                  placeholder="https://..."
+                  value={editItemAttachmentUrl}
+                  onChange={(e) => setEditItemAttachmentUrl(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowEditItemModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!editItemTitle || updateItemMutation.isPending}
+                onClick={() => updateItemMutation.mutate()}
+                className="px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 rounded-lg shadow-sm transition"
+              >
+                {updateItemMutation.isPending ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL: DELETE ASSESSMENT ITEM                                  */}
+      {/* ============================================================== */}
+      {showDeleteItemModal && deletingItem && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 max-w-md w-full p-6 shadow-xl space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="p-2 bg-rose-100 rounded-xl">
+                <Trash2 className="w-6 h-6 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Delete Assessment Item</h3>
+                <p className="text-xs text-slate-500">This action cannot be undone.</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-700 leading-relaxed">
+              Are you sure you want to delete <span className="font-bold text-slate-900">"{deletingItem.title}"</span>?
+              All student marks, submissions, and deadline histories recorded for this assessment will be permanently deleted, and student subject results will be recalculated.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDeleteItemModal(false);
+                  setDeletingItem(null);
+                }}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleteItemMutation.isPending}
+                onClick={() => deleteItemMutation.mutate()}
+                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-lg shadow-sm transition"
+              >
+                {deleteItemMutation.isPending ? 'Deleting...' : 'Delete Assessment'}
               </button>
             </div>
           </div>

@@ -49,26 +49,31 @@ export const updateAssessmentSchemeSchema = z.object({
 export const createAssessmentItemSchema = z.object({
   assessmentCategoryId: z.string().uuid(),
   title: z.string().trim().min(1, 'Title is required').max(150),
-  description: z.string().trim().max(1000).optional(),
-  instructions: z.string().trim().max(5000).optional(),
-  attachmentUrl: z.string().trim().url().optional().or(z.literal('')),
+  description: z.string().trim().max(1000).optional().nullable(),
+  instructions: z.string().trim().max(5000).optional().nullable(),
+  attachmentUrl: z.string().trim().url().optional().or(z.literal('')).nullable(),
   maxMarks: z.number().positive('Maximum marks must be greater than 0').max(1000),
   weight: z.number().positive().default(1),
-  assessmentDate: z.string().optional(),
-  dueDate: z.string().optional(),
+  assessmentDate: z.string().optional().nullable(),
+  dueDate: z.string().optional().nullable(),
   isPublished: z.boolean().default(false),
+  examScheduleId: z.string().uuid().nullable().optional(),
+  displayOrder: z.number().int().min(0).optional(),
 });
 
 export const updateAssessmentItemSchema = z.object({
-  title: z.string().trim().min(1).max(150).optional(),
-  description: z.string().trim().max(1000).optional(),
-  instructions: z.string().trim().max(5000).optional(),
-  attachmentUrl: z.string().trim().optional(),
-  maxMarks: z.number().positive().max(1000).optional(),
+  assessmentCategoryId: z.string().uuid().optional(),
+  title: z.string().trim().min(1, 'Title is required').max(150).optional(),
+  description: z.string().trim().max(1000).optional().nullable(),
+  instructions: z.string().trim().max(5000).optional().nullable(),
+  attachmentUrl: z.string().trim().url().optional().or(z.literal('')).nullable(),
+  maxMarks: z.number().positive('Maximum marks must be greater than 0').max(1000).optional(),
   weight: z.number().positive().optional(),
-  assessmentDate: z.string().optional(),
-  dueDate: z.string().optional(),
+  assessmentDate: z.string().optional().nullable(),
+  dueDate: z.string().optional().nullable(),
   isPublished: z.boolean().optional(),
+  examScheduleId: z.string().uuid().nullable().optional(),
+  displayOrder: z.number().int().min(0).optional(),
 });
 
 export const extendAssessmentDeadlineSchema = z.object({

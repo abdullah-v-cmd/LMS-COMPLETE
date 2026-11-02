@@ -865,15 +865,6 @@ export const ExamsPage: React.FC = () => {
             Exam Management
           </button>
         )}
-
-        <button
-          type="button"
-          onClick={() => navigate('/assessments')}
-          className="flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 ml-auto"
-        >
-          <Layers className="w-4 h-4 text-indigo-600" />
-          University Assessments & Schemes →
-        </button>
       </div>
 
       {/* =========================================================================

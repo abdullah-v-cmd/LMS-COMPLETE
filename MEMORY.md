@@ -256,3 +256,31 @@ d:\lms2/
     - Test 33: Manual marks can be bulk uploaded via CSV for any assessment category.
   - Zero TypeScript compile errors in `server/` and `client/`.
 
+---
+
+## 9. Assessment Item Edit & Delete, Direct Exam Linking & Strict Subject Teacher Authorization (2026-11-03)
+- **Edit & Delete Assessment Items**:
+  - `PUT /api/v1/assessments/items/:id`: Subject teacher can edit title, description, maxMarks, dueDate, instructions, attachmentUrl, displayOrder, category, and examScheduleId. If maxMarks or category changes, student assessment marks are proportionally scaled and subject results recalculated automatically.
+  - `DELETE /api/v1/assessments/items/:id`: Subject teacher can delete assessment items. Automatically unlinks LMS assignments, deletes deadline histories, submissions, and student marks in a transactional atomic operation, and triggers recalculation of student GPAs and letter grades.
+  - Returns `403 Forbidden` if results have already been submitted to the Exam Department (teacher lock).
+- **Direct Exam Schedule Linking**:
+  - Added "Connect to Term Exam Schedule (Optional)" dropdown directly inside the **Create Assessment Item Modal** (`newItemExamScheduleId`).
+  - Added "Connect to Term Exam Schedule (Optional)" dropdown directly inside the **Edit Assessment Item Modal** (`editItemExamScheduleId`).
+  - Automatically fetches term exam schedules for the current subject and displays session name, exam date, and maximum marks.
+  - Automatically triggers synchronization of exam marks upon creation or modification.
+- **Strict Subject Teacher Authorization (Complete Lockdown for Non-Teachers)**:
+  - Removed superadmin and exam controller bypasses from `AssessmentService.assertTeacherAuthorized`.
+  - Only actively assigned teachers (`ROLE_SUBJECT_TEACHER`, `ROLE_CLASS_TEACHER`, `ROLE_TEACHING_ASSISTANT`) with an active `TeacherAssignment` for the specified `subjectId` and `sectionId` can manage schemes, create/edit/delete assessment items, enter continuous marks, and submit results.
+  - Non-assigned users, superadmins, and exam department staff receive `403 Forbidden` (`Access denied: Only the authorized subject teacher can manage course assessments and results`).
+  - In `Sidebar.tsx`, the `Assessment & Results` navigation menu item is strictly restricted to teachers, students, and parents.
+  - Removed exam department management tab and cross-navigation links from `/assessments` and `/exams`.
+  - Dual-governance moderation workflow remains intact: Exam Department staff review submitted results and approve/reject formal grade correction requests in their official capacity, but cannot create/edit/delete continuous assessment items or enter teacher marks.
+- **Verification Evidence**:
+  - `tests/assessment-item-edit-delete-auth.test.ts`: **All 7/7 tests PASSED**.
+  - `tests/university-assessment-results.test.ts`: **All 20/20 tests PASSED**.
+  - `tests/master-lms-assessment-integration.test.ts`: **All 33/33 tests PASSED**.
+  - Total automated assessment test suite: **70/70 tests PASSED (0 failures)**.
+  - Client production build (`npm --prefix client run build`): Exit Code 0.
+  - Server production build (`npm --prefix server run build`): Exit Code 0.
+
+

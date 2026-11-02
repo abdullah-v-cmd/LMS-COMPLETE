@@ -8,6 +8,7 @@ import {
   createAssessmentSchemeSchema,
   updateAssessmentSchemeSchema,
   createAssessmentItemSchema,
+  updateAssessmentItemSchema,
   extendAssessmentDeadlineSchema,
   saveMarksBatchSchema,
   submitAssignmentWorkSchema,
@@ -57,6 +58,17 @@ router.post(
   validateRequest({ body: createAssessmentItemSchema }),
   logAuditEvent('ASSESSMENT_ITEM_CREATED', 'AssessmentItem'),
   AssessmentController.createAssessmentItem
+);
+router.put(
+  '/items/:id',
+  validateRequest({ body: updateAssessmentItemSchema }),
+  logAuditEvent('ASSESSMENT_ITEM_UPDATED', 'AssessmentItem'),
+  AssessmentController.updateAssessmentItem
+);
+router.delete(
+  '/items/:id',
+  logAuditEvent('ASSESSMENT_ITEM_DELETED', 'AssessmentItem'),
+  AssessmentController.deleteAssessmentItem
 );
 router.post(
   '/items/:id/extend-deadline',

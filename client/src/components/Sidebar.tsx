@@ -131,10 +131,6 @@ export const Sidebar: React.FC = () => {
       to: '/assessments',
       icon: Layers,
       roles: [
-        'ROLE_SUPER_ADMIN',
-        'ROLE_INSTITUTION_ADMIN',
-        'ROLE_ACADEMIC_HEAD',
-        'ROLE_EXAM_CONTROLLER',
         'ROLE_SUBJECT_TEACHER',
         'ROLE_CLASS_TEACHER',
         'ROLE_TEACHING_ASSISTANT',

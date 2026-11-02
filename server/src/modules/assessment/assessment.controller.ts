@@ -73,6 +73,33 @@ export class AssessmentController {
     }
   }
 
+  static async updateAssessmentItem(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const item = await AssessmentService.updateAssessmentItem(
+        req.institutionId!,
+        req.user!,
+        req.params.id,
+        req.body
+      );
+      return sendSuccess(res, item);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async deleteAssessmentItem(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const result = await AssessmentService.deleteAssessmentItem(
+        req.institutionId!,
+        req.user!,
+        req.params.id
+      );
+      return sendSuccess(res, result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   static async extendAssessmentDeadline(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const updated = await AssessmentService.extendAssessmentDeadline(
