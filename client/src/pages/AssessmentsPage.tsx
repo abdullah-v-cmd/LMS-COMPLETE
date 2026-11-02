@@ -97,6 +97,28 @@ type AssessmentItem = {
   }>;
 };
 
+type ExamScheduleOption = {
+  id: string;
+  examSessionId: string;
+  sessionName: string;
+  examDate: string;
+  startTime?: string | null;
+  endTime?: string | null;
+  maxMarks: number;
+  passMarks: number;
+  passingMarks?: number;
+  roomNumber?: string | null;
+  sessionStatus: string;
+  marksCount: number;
+  examSession?: {
+    id: string;
+    name: string;
+    startDate?: string;
+    endDate?: string;
+    status: string;
+  };
+};
+
 type AssessmentScheme = {
   id: string;
   title: string;
@@ -390,24 +412,7 @@ export const AssessmentsPage: React.FC = () => {
           academicTermId: currentAssignment.academicTermId,
         },
       });
-      return (
-        (res.data.data as Array<{
-          id: string;
-          examSessionId: string;
-          subjectId: string;
-          examDate: string;
-          maxMarks: number;
-          passingMarks: number;
-          examSession: {
-            id: string;
-            name: string;
-            startDate: string;
-            endDate: string;
-            status: string;
-          };
-          subject: { id: string; name: string; code: string };
-        }>) || []
-      );
+      return (res.data.data as ExamScheduleOption[]) || [];
     },
     enabled: Boolean(currentAssignment) && isTeacher,
   });
@@ -1769,10 +1774,18 @@ export const AssessmentsPage: React.FC = () => {
                         {/* Connected Exam Schedule Badge & Actions */}
                         {item.examSchedule ? (
                           <div className="mt-2.5 rounded-lg bg-purple-50/80 border border-purple-200 p-2 text-xs flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-1.5 text-purple-900 font-bold truncate">
+                            <div
+                              onClick={() => {
+                                setTargetAssessmentForExam(item);
+                                setSelectedExamScheduleId(item.examScheduleId || '');
+                                setShowConnectExamModal(true);
+                              }}
+                              className="flex items-center gap-1.5 text-purple-900 font-bold truncate cursor-pointer hover:underline"
+                              title="Click to view or change connected Exam Schedule"
+                            >
                               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                              <span className="truncate" title={item.examSchedule.examSession.name}>
-                                Exam: {item.examSchedule.examSession.name}
+                              <span className="truncate" title={item.examSchedule.examSession?.name || 'Exam'}>
+                                Exam: {item.examSchedule.examSession?.name || 'Exam Schedule'}
                               </span>
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
@@ -1804,7 +1817,7 @@ export const AssessmentsPage: React.FC = () => {
                               type="button"
                               onClick={() => {
                                 setTargetAssessmentForExam(item);
-                                setSelectedExamScheduleId('');
+                                setSelectedExamScheduleId(item.examScheduleId || '');
                                 setShowConnectExamModal(true);
                               }}
                               className="mt-2.5 w-full flex items-center justify-center gap-1 text-[11px] font-bold text-purple-700 bg-purple-50/90 hover:bg-purple-100 border border-purple-200/80 rounded-lg py-1.5 transition"
@@ -2953,7 +2966,7 @@ export const AssessmentsPage: React.FC = () => {
                   <option value="">-- None / Standalone Assessment Item --</option>
                   {examSchedulesQuery.data?.map((sch) => (
                     <option key={sch.id} value={sch.id}>
-                      {sch.examSession?.name || 'Exam'} · {new Date(sch.examDate).toLocaleDateString()} [Max: {sch.maxMarks}, Pass: {sch.passingMarks}]
+                      {sch.sessionName || sch.examSession?.name || 'Exam'} · {new Date(sch.examDate).toLocaleDateString()} ({sch.startTime || 'TBD'}) [Max: {sch.maxMarks}, Pass: {sch.passMarks || sch.passingMarks || 40}]
                     </option>
                   ))}
                 </select>
@@ -3088,7 +3101,7 @@ export const AssessmentsPage: React.FC = () => {
                   <option value="">-- None / Standalone Assessment Item --</option>
                   {examSchedulesQuery.data?.map((sch) => (
                     <option key={sch.id} value={sch.id}>
-                      {sch.examSession?.name || 'Exam'} · {new Date(sch.examDate).toLocaleDateString()} [Max: {sch.maxMarks}, Pass: {sch.passingMarks}]
+                      {sch.sessionName || sch.examSession?.name || 'Exam'} · {new Date(sch.examDate).toLocaleDateString()} ({sch.startTime || 'TBD'}) [Max: {sch.maxMarks}, Pass: {sch.passMarks || sch.passingMarks || 40}]
                     </option>
                   ))}
                 </select>
@@ -3519,13 +3532,13 @@ export const AssessmentsPage: React.FC = () => {
                       >
                         <div className="space-y-0.5">
                           <div className="flex items-center gap-2">
-                            <span className="font-black text-slate-900">{sched.examSession.name}</span>
+                            <span className="font-black text-slate-900">{sched.sessionName || sched.examSession?.name || 'Exam Session'}</span>
                             <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-slate-100 text-slate-700 uppercase">
-                              {sched.examSession.status}
+                              {sched.sessionStatus || sched.examSession?.status || 'SCHEDULED'}
                             </span>
                           </div>
                           <div className="text-slate-500 text-[11px]">
-                            Max: {sched.maxMarks} marks · Pass: {sched.passingMarks} marks · Date: {sched.examDate ? new Date(sched.examDate).toLocaleDateString() : 'TBD'}
+                            Max: {sched.maxMarks} marks · Pass: {sched.passMarks || sched.passingMarks || 40} marks · Date: {sched.examDate ? new Date(sched.examDate).toLocaleDateString() : 'TBD'}
                           </div>
                         </div>
 

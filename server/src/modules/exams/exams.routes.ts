@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { ExamsController } from './exams.controller';
+import { AssessmentController } from '../assessment/assessment.controller';
 import { requireAuth } from '../../middleware/auth';
 import { requireTenant } from '../../middleware/tenant';
 import { requirePermission } from '../../middleware/rbac';
@@ -24,6 +25,7 @@ const router = Router();
 router.use(requireAuth, requireTenant);
 
 router.get('/sessions', requirePermission(PERMISSIONS.EXAM_READ), ExamsController.getExamSessions);
+router.get('/schedules', requirePermission(PERMISSIONS.EXAM_READ), AssessmentController.getExamSchedules);
 router.get('/grading-scale', requirePermission(PERMISSIONS.EXAM_READ), ExamsController.getGradingScale);
 router.put('/grading-scale', requirePermission(PERMISSIONS.EXAM_CREATE), validateRequest({ body: gradingScaleSchema }), logAuditEvent('EXAM_GRADING_SCALE_UPDATED', 'InstitutionGradeBand'), ExamsController.setGradingScale);
 router.get('/invigilators/candidates', requirePermission(PERMISSIONS.EXAM_READ), ExamsController.getInvigilatorCandidates);
