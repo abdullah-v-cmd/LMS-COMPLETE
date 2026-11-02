@@ -163,10 +163,15 @@ export class AssessmentService {
           orderBy: { displayOrder: 'asc' },
           include: {
             assessments: {
-              orderBy: { createdAt: 'asc' },
+              orderBy: { displayOrder: 'asc' },
               include: {
                 _count: { select: { marks: true, submissions: true } },
                 deadlineHistories: { orderBy: { createdAt: 'desc' } },
+                examSchedule: {
+                  include: {
+                    examSession: { select: { id: true, name: true, startDate: true, endDate: true, status: true } },
+                  },
+                },
               },
             },
           },
@@ -191,10 +196,15 @@ export class AssessmentService {
             orderBy: { displayOrder: 'asc' },
             include: {
               assessments: {
-                orderBy: { createdAt: 'asc' },
+                orderBy: { displayOrder: 'asc' },
                 include: {
                   _count: { select: { marks: true, submissions: true } },
                   deadlineHistories: { orderBy: { createdAt: 'desc' } },
+                  examSchedule: {
+                    include: {
+                      examSession: { select: { id: true, name: true, startDate: true, endDate: true, status: true } },
+                    },
+                  },
                 },
               },
             },
@@ -1674,6 +1684,8 @@ export class AssessmentService {
       dueDate: Date | null;
       isPublished: boolean;
       assignmentId: string | null;
+      examScheduleId: string | null;
+      examSessionName: string | null;
     }> = [];
 
     for (const cat of scheme.categories) {
@@ -1690,6 +1702,8 @@ export class AssessmentService {
           dueDate: item.dueDate,
           isPublished: item.isPublished,
           assignmentId: (item as any).assignment?.id ?? null,
+          examScheduleId: item.examScheduleId ?? null,
+          examSessionName: (item as any).examSchedule?.examSession?.name ?? null,
         });
       }
     }
@@ -1978,5 +1992,406 @@ export class AssessmentService {
 
     return this.getGradebook(institutionId, user, data.subjectId, data.sectionId, data.academicTermId);
   }
+
+  /**
+   * Retrieve available ExamSchedules for the subject and term that can be linked to assessment items
+   */
+  static async getExamSchedulesForSubject(
+    institutionId: string,
+    subjectId: string,
+    academicTermId: string
+  ) {
+    const schedules = await prisma.examSchedule.findMany({
+      where: {
+        subjectId,
+        examSession: {
+          institutionId,
+          academicTermId,
+        },
+      },
+      include: {
+        examSession: {
+          select: {
+            id: true,
+            name: true,
+            startDate: true,
+            endDate: true,
+            status: true,
+          },
+        },
+        _count: {
+          select: {
+            marks: true,
+          },
+        },
+      },
+      orderBy: {
+        examDate: 'asc',
+      },
+    });
+
+    return schedules.map((s) => ({
+      id: s.id,
+      examSessionId: s.examSessionId,
+      sessionName: s.examSession.name,
+      examDate: s.examDate,
+      startTime: s.startTime,
+      endTime: s.endTime,
+      maxMarks: s.maxMarks,
+      passMarks: s.passMarks,
+      roomNumber: s.roomNumber,
+      sessionStatus: s.examSession.status,
+      marksCount: s._count.marks,
+    }));
+  }
+
+  /**
+   * Connect or disconnect an AssessmentItem (e.g. Midterm or Final) with an ExamSchedule
+   */
+  static async connectExamSchedule(
+    institutionId: string,
+    user: AuthenticatedUser,
+    assessmentItemId: string,
+    examScheduleId: string | null,
+    syncNow = true
+  ) {
+    const item = await prisma.assessmentItem.findFirst({
+      where: {
+        id: assessmentItemId,
+        category: {
+          assessmentScheme: { institutionId },
+        },
+      },
+      include: {
+        category: {
+          include: {
+            assessmentScheme: true,
+          },
+        },
+      },
+    });
+    if (!item) throw { status: 404, message: 'Assessment item not found' };
+
+    await this.assertTeacherAuthorized(
+      institutionId,
+      user,
+      item.category.assessmentScheme.subjectId,
+      item.category.assessmentScheme.sectionId || ''
+    );
+
+    if (examScheduleId) {
+      const schedule = await prisma.examSchedule.findFirst({
+        where: {
+          id: examScheduleId,
+          subjectId: item.category.assessmentScheme.subjectId,
+          examSession: {
+            institutionId,
+            academicTermId: item.category.assessmentScheme.academicTermId,
+          },
+        },
+        include: { examSession: true },
+      });
+      if (!schedule) {
+        throw {
+          status: 404,
+          message: 'Exam schedule not found for this subject and academic term in this institution',
+        };
+      }
+    }
+
+    await prisma.assessmentItem.update({
+      where: { id: assessmentItemId },
+      data: { examScheduleId },
+    });
+
+    let syncedCount = 0;
+    if (examScheduleId && syncNow) {
+      const res = await this.syncExamScheduleMarks(institutionId, user, assessmentItemId);
+      syncedCount = res.syncedCount;
+    }
+
+    return {
+      message: examScheduleId
+        ? `Assessment connected to exam schedule successfully. ${syncedCount} marks synchronized.`
+        : 'Assessment disconnected from exam schedule.',
+      assessmentItemId,
+      examScheduleId,
+      syncedCount,
+    };
+  }
+
+  /**
+   * Manually pull and sync marks from a connected ExamSchedule into StudentAssessmentMarks
+   */
+  static async syncExamScheduleMarks(
+    institutionId: string,
+    user: AuthenticatedUser,
+    assessmentItemId: string
+  ) {
+    const item = await prisma.assessmentItem.findFirst({
+      where: {
+        id: assessmentItemId,
+        category: {
+          assessmentScheme: { institutionId },
+        },
+      },
+      include: {
+        category: {
+          include: {
+            assessmentScheme: true,
+          },
+        },
+      },
+    });
+    if (!item) throw { status: 404, message: 'Assessment item not found' };
+    if (!item.examScheduleId) throw { status: 400, message: 'Assessment item is not connected to any exam schedule' };
+
+    const schedule = await prisma.examSchedule.findFirst({
+      where: {
+        id: item.examScheduleId,
+        examSession: { institutionId },
+      },
+    });
+    if (!schedule) throw { status: 404, message: 'Connected exam schedule not found' };
+
+    const examMarks = await prisma.examMark.findMany({
+      where: {
+        examScheduleId: item.examScheduleId,
+      },
+    });
+
+    if (examMarks.length === 0) {
+      return {
+        message: 'No marks recorded in exam schedule yet.',
+        syncedCount: 0,
+      };
+    }
+
+    const scheme = item.category.assessmentScheme;
+    const sectionId = scheme.sectionId;
+
+    const studentQuery: any = { institutionId, status: 'ENROLLED' };
+    if (sectionId) studentQuery.sectionId = sectionId;
+    const enrolledStudents = await prisma.studentProfile.findMany({
+      where: studentQuery,
+      select: { id: true, sectionId: true },
+    });
+    const enrolledStudentMap = new Map(enrolledStudents.map((s) => [s.id, s]));
+
+    let syncedCount = 0;
+    const affectedStudentIds: string[] = [];
+
+    await prisma.$transaction(async (tx) => {
+      for (const em of examMarks) {
+        if (!enrolledStudentMap.has(em.studentId)) continue;
+
+        let marksToStore = em.marksObtained;
+        if (schedule.maxMarks > 0 && item.maxMarks > 0 && schedule.maxMarks !== item.maxMarks) {
+          marksToStore = Number(((em.marksObtained / schedule.maxMarks) * item.maxMarks).toFixed(2));
+        }
+
+        await tx.studentAssessmentMark.upsert({
+          where: {
+            assessmentItemId_studentId: {
+              assessmentItemId: item.id,
+              studentId: em.studentId,
+            },
+          },
+          create: {
+            assessmentItemId: item.id,
+            studentId: em.studentId,
+            marksObtained: em.isAbsent ? 0 : marksToStore,
+            isAbsent: em.isAbsent,
+            isExcused: false,
+            remarks: em.remarks || 'Synced from Exam Schedule',
+            enteredByUserId: user.id,
+            status: 'PUBLISHED',
+          },
+          update: {
+            marksObtained: em.isAbsent ? 0 : marksToStore,
+            isAbsent: em.isAbsent,
+            remarks: em.remarks || 'Synced from Exam Schedule',
+            enteredByUserId: user.id,
+            updatedAt: new Date(),
+          },
+        });
+
+        affectedStudentIds.push(em.studentId);
+        syncedCount++;
+      }
+    });
+
+    for (const sid of affectedStudentIds) {
+      const student = enrolledStudentMap.get(sid);
+      await this.recalculateStudentSubjectResult(
+        institutionId,
+        sid,
+        scheme.subjectId,
+        student?.sectionId || sectionId || '',
+        scheme.academicTermId,
+        scheme.id
+      );
+    }
+
+    return {
+      message: `Successfully synchronized ${syncedCount} student marks from exam schedule.`,
+      syncedCount,
+    };
+  }
+
+  /**
+   * Upload or bulk-enter manual marks for any category (Midterm, Final, Quizzes, Lab, etc.)
+   */
+  static async uploadManualMarksCsv(
+    institutionId: string,
+    user: AuthenticatedUser,
+    assessmentItemId: string,
+    rows: Array<{
+      identifier: string;
+      marksObtained?: number | null;
+      isAbsent?: boolean;
+      isExcused?: boolean;
+      remarks?: string | null;
+    }>
+  ) {
+    const item = await prisma.assessmentItem.findFirst({
+      where: {
+        id: assessmentItemId,
+        category: {
+          assessmentScheme: { institutionId },
+        },
+      },
+      include: {
+        category: {
+          include: {
+            assessmentScheme: true,
+          },
+        },
+        assignment: true,
+      },
+    });
+    if (!item) throw { status: 404, message: 'Assessment item not found' };
+
+    const scheme = item.category.assessmentScheme;
+    await this.assertTeacherAuthorized(
+      institutionId,
+      user,
+      scheme.subjectId,
+      scheme.sectionId
+    );
+    await this.assertSchemeNotLockedForTeacher(
+      scheme.subjectId,
+      scheme.academicTermId,
+      scheme.sectionId
+    );
+
+    const cleanIdentifiers = rows.map((r) => r.identifier.trim());
+    const students = await prisma.studentProfile.findMany({
+      where: {
+        institutionId,
+        OR: [
+          { id: { in: cleanIdentifiers } },
+          { admissionNumber: { in: cleanIdentifiers } },
+          { rollNumber: { in: cleanIdentifiers } },
+        ],
+      },
+      select: { id: true, admissionNumber: true, rollNumber: true, sectionId: true },
+    });
+
+    const studentLookup = new Map<string, typeof students[0]>();
+    for (const s of students) {
+      studentLookup.set(s.id, s);
+      studentLookup.set(s.admissionNumber, s);
+      if (s.rollNumber) studentLookup.set(s.rollNumber, s);
+    }
+
+    const updatesToSave: Array<{
+      assessmentItemId: string;
+      studentId: string;
+      marksObtained?: number | null;
+      isAbsent?: boolean;
+      isExcused?: boolean;
+      remarks?: string | null;
+    }> = [];
+
+    const affectedStudentIds: string[] = [];
+
+    for (const row of rows) {
+      const found = studentLookup.get(row.identifier.trim());
+      if (!found) continue;
+
+      if (row.marksObtained !== null && row.marksObtained !== undefined) {
+        if (row.marksObtained > item.maxMarks) {
+          throw {
+            status: 400,
+            message: `Marks obtained (${row.marksObtained}) cannot exceed maximum marks (${item.maxMarks}) for student ${found.admissionNumber}`,
+          };
+        }
+      }
+
+      updatesToSave.push({
+        assessmentItemId: item.id,
+        studentId: found.id,
+        marksObtained: row.isAbsent ? 0 : row.marksObtained,
+        isAbsent: row.isAbsent ?? false,
+        isExcused: row.isExcused ?? false,
+        remarks: row.remarks || null,
+      });
+      affectedStudentIds.push(found.id);
+    }
+
+    if (updatesToSave.length === 0) {
+      throw { status: 400, message: 'No matching students found for the provided identifiers' };
+    }
+
+    await prisma.$transaction(async (tx) => {
+      for (const u of updatesToSave) {
+        await tx.studentAssessmentMark.upsert({
+          where: {
+            assessmentItemId_studentId: {
+              assessmentItemId: u.assessmentItemId,
+              studentId: u.studentId,
+            },
+          },
+          update: {
+            marksObtained: u.marksObtained,
+            isAbsent: u.isAbsent ?? false,
+            isExcused: u.isExcused ?? false,
+            remarks: u.remarks,
+            enteredByUserId: user.id,
+            updatedAt: new Date(),
+          },
+          create: {
+            assessmentItemId: u.assessmentItemId,
+            studentId: u.studentId,
+            marksObtained: u.marksObtained,
+            isAbsent: u.isAbsent ?? false,
+            isExcused: u.isExcused ?? false,
+            remarks: u.remarks,
+            enteredByUserId: user.id,
+          },
+        });
+      }
+    });
+
+    for (const sid of [...new Set(affectedStudentIds)]) {
+      const student = studentLookup.get(sid);
+      await this.recalculateStudentSubjectResult(
+        institutionId,
+        sid,
+        scheme.subjectId,
+        student?.sectionId || scheme.sectionId || '',
+        scheme.academicTermId,
+        scheme.id
+      );
+    }
+
+    return {
+      message: `Successfully uploaded and recorded marks for ${updatesToSave.length} students.`,
+      recordedCount: updatesToSave.length,
+      syncedCount: updatesToSave.length,
+    };
+  }
 }
+
 

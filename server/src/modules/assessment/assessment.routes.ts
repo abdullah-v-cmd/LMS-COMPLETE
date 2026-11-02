@@ -17,6 +17,8 @@ import {
   reviewResultCorrectionSchema,
   examDepartmentReviewSchema,
   saveGradebookMarksSchema,
+  connectExamScheduleSchema,
+  uploadManualMarksCsvSchema,
 } from './assessment.schemas';
 
 const router = Router();
@@ -144,4 +146,25 @@ router.post(
 // Student / Parent Portal View
 router.get('/student-result', AssessmentController.getStudentSubjectResult);
 
+// Exam Schedule Integration & Sync
+router.get('/exam-schedules', AssessmentController.getExamSchedules);
+router.post(
+  '/items/:id/connect-exam',
+  validateRequest({ body: connectExamScheduleSchema }),
+  logAuditEvent('ASSESSMENT_EXAM_SCHEDULE_CONNECTED', 'AssessmentItem'),
+  AssessmentController.connectExamSchedule
+);
+router.post(
+  '/items/:id/sync-exam',
+  logAuditEvent('ASSESSMENT_EXAM_MARKS_SYNCED', 'AssessmentItem'),
+  AssessmentController.syncExamScheduleMarks
+);
+router.post(
+  '/items/:id/upload-csv',
+  validateRequest({ body: uploadManualMarksCsvSchema }),
+  logAuditEvent('ASSESSMENT_MANUAL_MARKS_CSV_UPLOADED', 'AssessmentItem'),
+  AssessmentController.uploadManualMarksCsv
+);
+
 export default router;
+

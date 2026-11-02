@@ -958,4 +958,182 @@ describe('MASTER LMS ACADEMIC ASSESSMENT, GRADING & EXAMINATION INTEGRATION SUIT
     expect(correctionAudit).toBeDefined();
     expect(correctionAudit?.actorId).toBe(examControllerUserId);
   });
+
+  // TEST 31: Term Exam Schedule can be connected to an Assessment Item
+  it('31. Term Exam Schedule can be connected to an Assessment Item', async () => {
+    // Reset subject results status to DRAFT so editing and recalculation are allowed
+    await prisma.subjectResult.updateMany({
+      where: { subjectId, sectionId, academicTermId },
+      data: { status: SubjectResultStatus.DRAFT },
+    });
+
+    // 1. Ensure an ExamSession and ExamSchedule exist for this term & subject
+    let examSession = await prisma.examSession.findFirst({
+      where: { academicTermId, institutionId },
+    });
+    if (!examSession) {
+      examSession = await prisma.examSession.create({
+        data: {
+          institutionId,
+          academicTermId,
+          name: 'Midterm Examinations 2026-2027',
+          startDate: new Date('2026-11-10'),
+          endDate: new Date('2026-11-25'),
+          status: 'SCHEDULED',
+        },
+      });
+    }
+
+    let examSchedule = await prisma.examSchedule.findFirst({
+      where: { examSessionId: examSession.id, subjectId },
+    });
+    if (!examSchedule) {
+      examSchedule = await prisma.examSchedule.create({
+        data: {
+          examSessionId: examSession.id,
+          subjectId,
+          examDate: new Date('2026-11-15T09:00:00Z'),
+          startTime: '09:00 AM',
+          endTime: '12:00 PM',
+          maxMarks: 100,
+          passMarks: 40,
+        },
+      });
+    }
+
+    // 2. Fetch available exam schedules via API
+    const listRes = await request(app)
+      .get(`/api/v1/assessments/exam-schedules?subjectId=${subjectId}&academicTermId=${academicTermId}`)
+      .set('Authorization', `Bearer ${teacherToken}`);
+
+    expect(listRes.status).toBe(200);
+    expect(Array.isArray(listRes.body.data)).toBe(true);
+    const found = listRes.body.data.find((s: any) => s.id === examSchedule!.id);
+    expect(found).toBeDefined();
+
+    // 3. Connect Midterm Assessment Item to this Exam Schedule
+    const connectRes = await request(app)
+      .post(`/api/v1/assessments/items/${manualMidtermItemId}/connect-exam`)
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .send({ examScheduleId: examSchedule.id });
+
+    expect(connectRes.status).toBe(200);
+    expect(connectRes.body.data.examScheduleId).toBe(examSchedule.id);
+
+    // Verify persisted in DB
+    const updatedItem = await prisma.assessmentItem.findUniqueOrThrow({
+      where: { id: manualMidtermItemId },
+    });
+    expect(updatedItem.examScheduleId).toBe(examSchedule.id);
+  });
+
+  // TEST 32: Marks entered in Exams & Grades module automatically sync to connected AssessmentItem and recalculate live course results
+  it('32. Marks entered in Exams module automatically sync to connected AssessmentItem and recalculate live course results', async () => {
+    const item = await prisma.assessmentItem.findUniqueOrThrow({
+      where: { id: manualMidtermItemId },
+    });
+    expect(item.examScheduleId).toBeDefined();
+
+    // Unlock section result status to DRAFT so recalculation and edits are allowed
+    await prisma.subjectResult.updateMany({
+      where: { subjectId, sectionId, academicTermId },
+      data: { status: SubjectResultStatus.DRAFT },
+    });
+
+    // Clean up any existing exam marks for this schedule so enterMarks doesn't conflict
+    await prisma.examMark.deleteMany({
+      where: { examScheduleId: item.examScheduleId! },
+    });
+
+    // Enter marks in the Exams module: Alice gets 95 marks in the Midterm Exam
+    const examMarkRes = await request(app)
+      .post('/api/v1/exams/marks')
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .send({
+        examScheduleId: item.examScheduleId,
+        marks: [{ studentId: studentAliceId, marksObtained: 95, remarks: 'Outstanding exam paper' }],
+      });
+
+    expect(examMarkRes.status).toBe(200);
+
+    // Verify marks automatically synced to StudentAssessmentMark against Alice
+    const assessmentMark = await prisma.studentAssessmentMark.findUnique({
+      where: {
+        assessmentItemId_studentId: {
+          assessmentItemId: item.id,
+          studentId: studentAliceId,
+        },
+      },
+    });
+
+    expect(assessmentMark).toBeDefined();
+    expect(assessmentMark?.marksObtained).toBe(95);
+
+    // Verify Alice's SubjectResult Midterm breakdown has updated to 95%
+    const aliceResult = await prisma.subjectResult.findUniqueOrThrow({
+      where: {
+        subjectId_sectionId_studentId_academicTermId: {
+          subjectId,
+          sectionId,
+          studentId: studentAliceId,
+          academicTermId,
+        },
+      },
+    });
+
+    const midBreakdown = (aliceResult.categoryBreakdown as any[]).find((c) => c.categoryName === 'Midterm');
+    expect(midBreakdown).toBeDefined();
+    expect(midBreakdown.averagePercentage).toBe(95);
+  });
+
+  // TEST 33: Manual marks can be bulk uploaded via CSV for any assessment category
+  it('33. Manual marks can be bulk uploaded via CSV for any assessment category', async () => {
+    // Bulk upload marks for Alice via CSV row
+    const uploadRes = await request(app)
+      .post(`/api/v1/assessments/items/${manualParticipationItemId}/upload-csv`)
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .send({
+        rows: [
+          {
+            identifier: 'ADM-2026-001',
+            marksObtained: 98,
+            isAbsent: false,
+            isExcused: false,
+            remarks: 'Active discussions and presentation',
+          },
+        ],
+      });
+
+    expect(uploadRes.status).toBe(200);
+    expect(uploadRes.body.data.syncedCount).toBe(1);
+
+    // Verify marks updated in DB
+    const partMark = await prisma.studentAssessmentMark.findUnique({
+      where: {
+        assessmentItemId_studentId: {
+          assessmentItemId: manualParticipationItemId,
+          studentId: studentAliceId,
+        },
+      },
+    });
+
+    expect(partMark).toBeDefined();
+    expect(partMark?.marksObtained).toBe(98);
+
+    // Verify live recalculation
+    const aliceResult = await prisma.subjectResult.findUniqueOrThrow({
+      where: {
+        subjectId_sectionId_studentId_academicTermId: {
+          subjectId,
+          sectionId,
+          studentId: studentAliceId,
+          academicTermId,
+        },
+      },
+    });
+
+    const partBreakdown = (aliceResult.categoryBreakdown as any[]).find((c) => c.categoryName === 'Class Participation');
+    expect(partBreakdown).toBeDefined();
+    expect(partBreakdown.averagePercentage).toBe(98);
+  });
 });

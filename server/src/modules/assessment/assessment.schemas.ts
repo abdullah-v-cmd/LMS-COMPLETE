@@ -153,3 +153,21 @@ export const saveGradebookMarksSchema = z.object({
   ).min(1, 'At least one mark update is required'),
 });
 
+export const connectExamScheduleSchema = z.object({
+  examScheduleId: z.string().uuid().nullable().optional(),
+  syncNow: z.boolean().optional().default(true),
+});
+
+export const uploadManualMarksCsvSchema = z.object({
+  rows: z.array(
+    z.object({
+      identifier: z.string().trim().min(1, 'Student identifier is required'),
+      marksObtained: z.number().min(0, 'Marks cannot be negative').nullable().optional(),
+      isAbsent: z.boolean().optional().default(false),
+      isExcused: z.boolean().optional().default(false),
+      remarks: z.string().trim().max(500).optional().nullable(),
+    })
+  ).min(1, 'At least one student row is required'),
+});
+
+

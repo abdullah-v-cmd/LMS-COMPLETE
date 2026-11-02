@@ -268,5 +268,34 @@
     - **Publication & Transcripts**: Approved results update student report cards and official transcripts. Strict role isolation (students and parents view only their own records, cross-tenant requests rejected).
   - **Relevant Files**: `server/prisma/schema.prisma`, `server/prisma/migrations/20261102140000_lms_assignment_assessment_integration/`, `server/prisma/migrations/20261102160000_assignment_display_order/`, `server/src/modules/lms/*`, `server/src/modules/assessment/*`, `client/src/pages/AssessmentsPage.tsx`, `client/src/pages/CoursesPage.tsx`, `server/tests/master-lms-assessment-integration.test.ts`.
   - **Status**: VERIFIED
-  - **Evidence**: `tests/master-lms-assessment-integration.test.ts` (30/30 passed), `tests/university-assessment-results.test.ts` (20/20 passed), `tests/subject-attendance-no-period.test.ts` (10/10 passed), both client and server production builds exit code 0.
+  - **Evidence**: `tests/master-lms-assessment-integration.test.ts` (33/33 passed), `tests/university-assessment-results.test.ts` (20/20 passed), `tests/subject-attendance-no-period.test.ts` (10/10 passed), both client and server production builds exit code 0.
+
+- [x] **TASK-P10-04**
+  - **Feature**: Term Exam Schedule Connection & Manual / CSV Bulk Marks Upload Engine
+  - **Implementation Scope**:
+    - **Term Exam Schedule Connection (`ExamSchedule` <-> `AssessmentItem`)**:
+      - Connected assessment items (e.g., Midterm, Final Exam) directly to the examination timetable/schedule (`ExamSchedule`) within the active academic term.
+      - Schema relation: `AssessmentItem.examScheduleId` foreign key to `ExamSchedule.id` with `onDelete: SetNull`.
+      - Automatic two-way marks synchronization: When marks are entered or uploaded in the Exams and Grades module (`/exams/marks`, `ExamsService.enterMarks`), marks automatically sync to `StudentAssessmentMark` with proportional scaling if maximum marks differ, triggering live subject result recalculation (`AssessmentService.recalculateStudentSubjectResult`).
+      - Grade correction sync: When exam grade corrections are reviewed and approved by the Exam Department (`ExamsService.reviewGradeChange`), updated marks automatically sync into the continuous assessment gradebook and recalculate student GPAs and letter grades.
+      - On-demand sync API: `POST /api/v1/assessments/items/:id/sync-exam` to pull all existing exam marks on demand.
+    - **Manual Marks Entry & CSV Bulk Upload for Any Category**:
+      - Manual marks entry and CSV upload supported for any assessment category (Midterm, Final, Quizzes, Class Participation, Lab Work, Presentations, etc.).
+      - CSV upload endpoint: `POST /api/v1/assessments/items/:id/upload-csv` supporting roll number, admission number, or student UUID lookup.
+      - Flexible CSV parser with auto-detected delimiters (comma, tab, semicolon), header detection, marks validation against item `maxMarks`, and section lock status verification.
+      - Integrated CSV template download pre-populated with student roll numbers, admission numbers, and full names.
+      - Modal dialogs with drag-and-drop, raw text paste, live preview table, and real-time validation counters (Valid vs. Warning).
+  - **Relevant Files**:
+    - `server/prisma/schema.prisma`
+    - `server/prisma/migrations/20261102180000_assessment_exam_schedule_connection/`
+    - `server/src/modules/assessment/assessment.schemas.ts`
+    - `server/src/modules/assessment/assessment.routes.ts`
+    - `server/src/modules/assessment/assessment.controller.ts`
+    - `server/src/modules/assessment/assessment.service.ts`
+    - `server/src/modules/exams/exams.service.ts`
+    - `client/src/pages/AssessmentsPage.tsx`
+    - `server/tests/master-lms-assessment-integration.test.ts`
+  - **Status**: VERIFIED
+  - **Evidence**: `tests/master-lms-assessment-integration.test.ts` Tests 31, 32, 33 passing (33/33 total suite passing), `npm --prefix server run build` (`tsc`) exit code 0, `npm --prefix client run build` (`vite build`) exit code 0.
+
 

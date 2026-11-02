@@ -28,6 +28,10 @@ import {
   Calculator,
   TrendingUp,
   BarChart2,
+  Link2,
+  Unlink,
+  RefreshCw,
+  Download,
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
@@ -64,6 +68,22 @@ type AssessmentItem = {
   dueDate?: string;
   isPublished: boolean;
   isLocked: boolean;
+  examScheduleId?: string | null;
+  examSchedule?: {
+    id: string;
+    examSessionId: string;
+    subjectId: string;
+    maxMarks: number;
+    passingMarks: number;
+    examDate: string;
+    examSession: {
+      id: string;
+      name: string;
+      startDate: string;
+      endDate: string;
+      status: string;
+    };
+  } | null;
   category?: AssessmentCategory;
   _count?: { marks: number; submissions: number };
   deadlineHistories?: Array<{
@@ -127,6 +147,8 @@ type GradebookColumn = {
   weightagePercentage?: number;
   isLmsAssignment?: boolean;
   assignmentId?: string | null;
+  examScheduleId?: string | null;
+  examSessionName?: string | null;
 };
 
 type GradebookStudent = {
@@ -354,6 +376,43 @@ export const AssessmentsPage: React.FC = () => {
       return res.data.data;
     },
     enabled: isStudent || isParent,
+  });
+
+  // Available Exam Schedules Query for Term & Subject
+  const examSchedulesQuery = useQuery({
+    queryKey: [
+      'available-exam-schedules',
+      currentAssignment?.subjectId,
+      currentAssignment?.academicTermId,
+    ],
+    queryFn: async () => {
+      if (!currentAssignment) return [];
+      const res = await apiClient.get('/assessments/exam-schedules', {
+        params: {
+          subjectId: currentAssignment.subjectId,
+          academicTermId: currentAssignment.academicTermId,
+        },
+      });
+      return (
+        (res.data.data as Array<{
+          id: string;
+          examSessionId: string;
+          subjectId: string;
+          examDate: string;
+          maxMarks: number;
+          passingMarks: number;
+          examSession: {
+            id: string;
+            name: string;
+            startDate: string;
+            endDate: string;
+            status: string;
+          };
+          subject: { id: string; name: string; code: string };
+        }>) || []
+      );
+    },
+    enabled: Boolean(currentAssignment) && (isTeacher || isExamDept),
   });
 
   // Scheme Builder State
@@ -600,6 +659,187 @@ export const AssessmentsPage: React.FC = () => {
   const [proposedMarks, setProposedMarks] = useState<number>(0);
   const [correctionReason, setCorrectionReason] = useState<string>('');
 
+  // Connect Exam Schedule modal
+  const [showConnectExamModal, setShowConnectExamModal] = useState(false);
+  const [targetAssessmentForExam, setTargetAssessmentForExam] = useState<AssessmentItem | null>(null);
+  const [selectedExamScheduleId, setSelectedExamScheduleId] = useState('');
+
+  // Upload Manual Marks (CSV / Paste) modal
+  const [showUploadCsvModal, setShowUploadCsvModal] = useState(false);
+  const [targetAssessmentForCsv, setTargetAssessmentForCsv] = useState<AssessmentItem | null>(null);
+  const [csvRawText, setCsvRawText] = useState('');
+  const [csvParsedRows, setCsvParsedRows] = useState<
+    Array<{
+      identifier: string;
+      marksObtained?: number | null;
+      isAbsent?: boolean;
+      isExcused?: boolean;
+      remarks?: string | null;
+      studentName?: string;
+      rollNumber?: string;
+      matched: boolean;
+      warning?: string;
+    }>
+  >([]);
+  const [csvError, setCsvError] = useState('');
+
+  // Parse CSV helper for any category
+  const parseCsvText = (text: string, maxMarks: number) => {
+    setCsvError('');
+    if (!text.trim()) {
+      setCsvParsedRows([]);
+      return;
+    }
+
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0) {
+      setCsvParsedRows([]);
+      return;
+    }
+
+    const firstLine = lines[0];
+    const delimiter = firstLine.includes('\t') ? '\t' : firstLine.includes(';') ? ';' : ',';
+
+    const parsed: Array<{
+      identifier: string;
+      marksObtained?: number | null;
+      isAbsent?: boolean;
+      isExcused?: boolean;
+      remarks?: string | null;
+      studentName?: string;
+      rollNumber?: string;
+      matched: boolean;
+      warning?: string;
+    }> = [];
+
+    const enrolledList = marksRosterQuery.data?.students || [];
+    const gradebookList = gradebookStudents || [];
+
+    const studentMap = new Map<string, { id: string; name: string; roll: string; admission: string }>();
+    enrolledList.forEach((s) => {
+      const info = {
+        id: s.id,
+        name: `${s.user?.firstName || ''} ${s.user?.lastName || ''}`.trim(),
+        roll: s.rollNumber || '',
+        admission: s.admissionNumber,
+      };
+      studentMap.set(s.id.toLowerCase(), info);
+      studentMap.set(s.admissionNumber.toLowerCase(), info);
+      if (s.rollNumber) studentMap.set(s.rollNumber.toLowerCase(), info);
+    });
+    gradebookList.forEach((s) => {
+      const info = {
+        id: s.studentId,
+        name: s.studentName || `${s.firstName || ''} ${s.lastName || ''}`.trim(),
+        roll: s.rollNumber || '',
+        admission: s.admissionNumber,
+      };
+      studentMap.set(s.studentId.toLowerCase(), info);
+      studentMap.set(s.admissionNumber.toLowerCase(), info);
+      if (s.rollNumber) studentMap.set(s.rollNumber.toLowerCase(), info);
+    });
+
+    let startIndex = 0;
+    const lowerFirst = firstLine.toLowerCase();
+    if (
+      lowerFirst.includes('admission') ||
+      lowerFirst.includes('roll') ||
+      lowerFirst.includes('student') ||
+      lowerFirst.includes('identifier') ||
+      lowerFirst.includes('mark')
+    ) {
+      startIndex = 1;
+    }
+
+    for (let i = startIndex; i < lines.length; i++) {
+      const rawCols = lines[i].split(delimiter).map((c) => c.replace(/^["']|["']$/g, '').trim());
+      if (rawCols.length === 0 || !rawCols[0]) continue;
+
+      const identifier = rawCols[0];
+      const marksStr = rawCols[1] ?? '';
+      const isAbsentStr = rawCols[2] ?? '';
+      const isExcusedStr = rawCols[3] ?? '';
+      const remarks = rawCols.slice(4).join(' ').trim() || undefined;
+
+      const isAbsent = ['yes', 'true', '1', 'a', 'absent'].includes(isAbsentStr.toLowerCase());
+      const isExcused = ['yes', 'true', '1', 'e', 'excused'].includes(isExcusedStr.toLowerCase());
+
+      let marksObtained: number | null = null;
+      let warning: string | undefined;
+
+      if (!isAbsent && !isExcused && marksStr !== '') {
+        const num = Number(marksStr);
+        if (isNaN(num)) {
+          warning = `Invalid marks: "${marksStr}"`;
+        } else if (num < 0) {
+          warning = `Negative marks (${num})`;
+        } else if (num > maxMarks) {
+          warning = `Marks (${num}) exceed max (${maxMarks})`;
+        } else {
+          marksObtained = num;
+        }
+      }
+
+      const match = studentMap.get(identifier.toLowerCase());
+      if (!match) {
+        warning = warning ? `${warning}; Student not found` : 'Student identifier not found in this section';
+      }
+
+      parsed.push({
+        identifier,
+        marksObtained,
+        isAbsent,
+        isExcused,
+        remarks,
+        studentName: match?.name,
+        rollNumber: match?.roll,
+        matched: Boolean(match),
+        warning,
+      });
+    }
+
+    setCsvParsedRows(parsed);
+  };
+
+  // Download CSV Template helper
+  const handleDownloadCsvTemplate = (item: AssessmentItem) => {
+    const enrolledList = marksRosterQuery.data?.students || [];
+    const gradebookList = gradebookStudents || [];
+
+    const rows: Array<{ adm: string; roll: string; name: string }> = [];
+    if (enrolledList.length > 0) {
+      enrolledList.forEach((s) => {
+        rows.push({
+          adm: s.admissionNumber,
+          roll: s.rollNumber || '',
+          name: `${s.user?.firstName || ''} ${s.user?.lastName || ''}`.trim(),
+        });
+      });
+    } else {
+      gradebookList.forEach((s) => {
+        rows.push({
+          adm: s.admissionNumber,
+          roll: s.rollNumber || '',
+          name: s.studentName || `${s.firstName || ''} ${s.lastName || ''}`.trim(),
+        });
+      });
+    }
+
+    let csv = 'AdmissionNumber,MarksObtained,IsAbsent,IsExcused,Remarks,StudentName,RollNumber\n';
+    rows.forEach((r) => {
+      csv += `"${r.adm}","","","","","${r.name}","${r.roll}"\n`;
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `${item.title.replace(/[^a-zA-Z0-9_-]/g, '_')}_template.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // Checking lock state: is section result submitted to exam dept?
   const isSectionLocked = useMemo(() => {
     const results = resultsQuery.data?.results || [];
@@ -787,6 +1027,84 @@ export const AssessmentsPage: React.FC = () => {
     },
     onError: (err: any) => {
       setError(err?.response?.data?.message || err.message || 'Failed to save gradebook marks');
+      setNotice('');
+    },
+  });
+
+  // Connect / Disconnect Assessment Item to Exam Schedule
+  const connectExamScheduleMutation = useMutation({
+    mutationFn: async (data: { itemId: string; examScheduleId: string | null }) => {
+      const res = await apiClient.post(`/assessments/items/${data.itemId}/connect-exam`, {
+        examScheduleId: data.examScheduleId,
+      });
+      return res.data;
+    },
+    onSuccess: (res: any) => {
+      setNotice(res?.data?.message || 'Exam schedule connection updated successfully.');
+      setError('');
+      setShowConnectExamModal(false);
+      setTargetAssessmentForExam(null);
+      queryClient.invalidateQueries({ queryKey: ['assessment-scheme'] });
+      queryClient.invalidateQueries({ queryKey: ['assessment-gradebook'] });
+      queryClient.invalidateQueries({ queryKey: ['assessment-marks-roster'] });
+      queryClient.invalidateQueries({ queryKey: ['available-exam-schedules'] });
+    },
+    onError: (err: any) => {
+      setError(err?.response?.data?.message || err.message || 'Failed to update exam connection');
+      setNotice('');
+    },
+  });
+
+  // Synchronize Marks from Connected Exam Schedule
+  const syncExamMarksMutation = useMutation({
+    mutationFn: async (itemId: string) => {
+      const res = await apiClient.post(`/assessments/items/${itemId}/sync-exam`);
+      return res.data;
+    },
+    onSuccess: (res: any) => {
+      setNotice(res?.data?.message || 'Marks synchronized from exam schedule successfully.');
+      setError('');
+      queryClient.invalidateQueries({ queryKey: ['assessment-scheme'] });
+      queryClient.invalidateQueries({ queryKey: ['assessment-gradebook'] });
+      queryClient.invalidateQueries({ queryKey: ['assessment-marks-roster'] });
+      queryClient.invalidateQueries({ queryKey: ['assessment-section-results'] });
+    },
+    onError: (err: any) => {
+      setError(err?.response?.data?.message || err.message || 'Failed to sync exam marks');
+      setNotice('');
+    },
+  });
+
+  // Bulk / Manual Marks CSV Upload
+  const uploadCsvMarksMutation = useMutation({
+    mutationFn: async (data: {
+      itemId: string;
+      rows: Array<{
+        identifier: string;
+        marksObtained?: number | null;
+        isAbsent?: boolean;
+        isExcused?: boolean;
+        remarks?: string | null;
+      }>;
+    }) => {
+      const res = await apiClient.post(`/assessments/items/${data.itemId}/upload-csv`, {
+        rows: data.rows,
+      });
+      return res.data;
+    },
+    onSuccess: (res: any) => {
+      setNotice(res?.data?.message || 'Marks uploaded and course results recalculated successfully.');
+      setError('');
+      setShowUploadCsvModal(false);
+      setTargetAssessmentForCsv(null);
+      setCsvRawText('');
+      setCsvParsedRows([]);
+      queryClient.invalidateQueries({ queryKey: ['assessment-marks-roster'] });
+      queryClient.invalidateQueries({ queryKey: ['assessment-gradebook'] });
+      queryClient.invalidateQueries({ queryKey: ['assessment-section-results'] });
+    },
+    onError: (err: any) => {
+      setError(err?.response?.data?.message || err.message || 'Failed to upload CSV marks');
       setNotice('');
     },
   });
@@ -1380,6 +1698,56 @@ export const AssessmentsPage: React.FC = () => {
                           <p className="text-xs text-slate-600 mt-2 line-clamp-2">{item.instructions}</p>
                         )}
 
+                        {/* Connected Exam Schedule Badge & Actions */}
+                        {item.examSchedule ? (
+                          <div className="mt-2.5 rounded-lg bg-purple-50/80 border border-purple-200 p-2 text-xs flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 text-purple-900 font-bold truncate">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                              <span className="truncate" title={item.examSchedule.examSession.name}>
+                                Exam: {item.examSchedule.examSession.name}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                title="Sync marks now from Exam Schedule"
+                                disabled={syncExamMarksMutation.isPending}
+                                onClick={() => syncExamMarksMutation.mutate(item.id)}
+                                className="p-1 text-purple-700 hover:bg-purple-100 rounded transition"
+                              >
+                                <RefreshCw className={`w-3.5 h-3.5 ${syncExamMarksMutation.isPending ? 'animate-spin' : ''}`} />
+                              </button>
+                              {!isSectionLocked && (
+                                <button
+                                  type="button"
+                                  title="Disconnect from Exam Schedule"
+                                  disabled={connectExamScheduleMutation.isPending}
+                                  onClick={() => connectExamScheduleMutation.mutate({ itemId: item.id, examScheduleId: null })}
+                                  className="p-1 text-slate-400 hover:text-rose-600 rounded transition"
+                                >
+                                  <Unlink className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          !isSectionLocked && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTargetAssessmentForExam(item);
+                                setSelectedExamScheduleId('');
+                                setShowConnectExamModal(true);
+                              }}
+                              className="mt-2.5 w-full flex items-center justify-center gap-1 text-[11px] font-bold text-purple-700 bg-purple-50/90 hover:bg-purple-100 border border-purple-200/80 rounded-lg py-1.5 transition"
+                              title="Connect this assessment (e.g. Midterm or Final) to an Exam Schedule for automatic marks synchronization"
+                            >
+                              <Link2 className="w-3 h-3" />
+                              Connect to Term Exam Schedule
+                            </button>
+                          )
+                        )}
+
                         <div className="mt-3 text-xs text-slate-500 space-y-1">
                           {item.dueDate && (
                             <div className="flex items-center gap-1 text-slate-700 font-medium">
@@ -1393,23 +1761,43 @@ export const AssessmentsPage: React.FC = () => {
                         </div>
                       </div>
 
-                      <div className="mt-4 pt-3 border-t border-slate-200 flex items-center justify-between">
-                        {!isSectionLocked && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setDeadlineItem(item);
-                              setNewDueDateValue(
-                                item.dueDate ? new Date(item.dueDate).toISOString().slice(0, 16) : ''
-                              );
-                              setShowDeadlineModal(true);
-                            }}
-                            className="flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-indigo-600"
-                          >
-                            <Clock className="w-3.5 h-3.5" />
-                            Extend Deadline
-                          </button>
-                        )}
+                      <div className="mt-4 pt-3 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          {!isSectionLocked && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDeadlineItem(item);
+                                setNewDueDateValue(
+                                  item.dueDate ? new Date(item.dueDate).toISOString().slice(0, 16) : ''
+                                );
+                                setShowDeadlineModal(true);
+                              }}
+                              className="flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-indigo-600"
+                            >
+                              <Clock className="w-3.5 h-3.5" />
+                              Deadline
+                            </button>
+                          )}
+
+                          {!isSectionLocked && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTargetAssessmentForCsv(item);
+                                setCsvRawText('');
+                                setCsvParsedRows([]);
+                                setCsvError('');
+                                setShowUploadCsvModal(true);
+                              }}
+                              className="flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-indigo-600"
+                              title="Upload CSV or paste marks manually for this assessment"
+                            >
+                              <Upload className="w-3.5 h-3.5" />
+                              Upload CSV
+                            </button>
+                          )}
+                        </div>
 
                         <button
                           type="button"
@@ -1472,23 +1860,59 @@ export const AssessmentsPage: React.FC = () => {
 
             {selectedItemId && marksRosterQuery.data ? (
               <div className="space-y-4">
-                <div className="flex items-center justify-between bg-indigo-50/60 border border-indigo-100 rounded-xl p-3 text-xs text-indigo-900">
-                  <div>
-                    <span className="font-bold">{marksRosterQuery.data.assessment.title}</span> · Maximum Marks:{' '}
-                    <span className="font-extrabold">{marksRosterQuery.data.assessment.maxMarks}</span> · Category:{' '}
-                    <span className="font-bold">{marksRosterQuery.data.assessment.category?.name}</span>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-indigo-50/60 border border-indigo-100 rounded-xl p-3 text-xs text-indigo-900">
+                  <div className="space-y-1">
+                    <div>
+                      <span className="font-bold">{marksRosterQuery.data.assessment.title}</span> · Maximum Marks:{' '}
+                      <span className="font-extrabold">{marksRosterQuery.data.assessment.maxMarks}</span> · Category:{' '}
+                      <span className="font-bold">{marksRosterQuery.data.assessment.category?.name}</span>
+                    </div>
+                    {marksRosterQuery.data.assessment.examSchedule && (
+                      <div className="flex items-center gap-2 text-purple-900 font-bold">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                        <span>Connected to Exam: {marksRosterQuery.data.assessment.examSchedule.examSession.name} (Live auto-sync active)</span>
+                        <button
+                          type="button"
+                          title="Sync marks now from Exam Schedule"
+                          disabled={syncExamMarksMutation.isPending}
+                          onClick={() => syncExamMarksMutation.mutate(marksRosterQuery.data!.assessment.id)}
+                          className="flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold text-purple-700 bg-purple-100 hover:bg-purple-200 rounded transition"
+                        >
+                          <RefreshCw className={`w-3 h-3 ${syncExamMarksMutation.isPending ? 'animate-spin' : ''}`} />
+                          {syncExamMarksMutation.isPending ? 'Syncing...' : 'Sync from Exam Now'}
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {!isSectionLocked && (
-                    <button
-                      type="button"
-                      disabled={saveMarksBatchMutation.isPending}
-                      onClick={() => saveMarksBatchMutation.mutate()}
-                      className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition"
-                    >
-                      <Save className="w-3.5 h-3.5" />
-                      {saveMarksBatchMutation.isPending ? 'Saving...' : 'Save All Marks (Auto-Recalculate)'}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTargetAssessmentForCsv(marksRosterQuery.data!.assessment);
+                          setCsvRawText('');
+                          setCsvParsedRows([]);
+                          setCsvError('');
+                          setShowUploadCsvModal(true);
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg shadow-sm transition"
+                        title="Upload CSV or paste marks manually"
+                      >
+                        <Upload className="w-3.5 h-3.5 text-indigo-600" />
+                        Upload CSV / Bulk Marks
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={saveMarksBatchMutation.isPending}
+                        onClick={() => saveMarksBatchMutation.mutate()}
+                        className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition"
+                      >
+                        <Save className="w-3.5 h-3.5" />
+                        {saveMarksBatchMutation.isPending ? 'Saving...' : 'Save All Marks (Auto-Recalculate)'}
+                      </button>
+                    </div>
                   )}
                 </div>
 
@@ -1699,6 +2123,25 @@ export const AssessmentsPage: React.FC = () => {
 
               {/* Action Buttons */}
               <div className="flex flex-wrap items-center gap-2.5">
+                {/* Bulk Upload Marks CSV Button */}
+                {!isSectionLocked && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTargetAssessmentForCsv(null);
+                      setCsvRawText('');
+                      setCsvParsedRows([]);
+                      setCsvError('');
+                      setShowUploadCsvModal(true);
+                    }}
+                    className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl transition shadow-sm"
+                    title="Upload marks via CSV or paste format for any assessment item"
+                  >
+                    <Upload className="w-4 h-4 text-indigo-600" />
+                    Bulk Upload Marks (CSV)
+                  </button>
+                )}
+
                 {/* Save All Changes Button */}
                 {!isSectionLocked && (
                   <button
@@ -1793,19 +2236,51 @@ export const AssessmentsPage: React.FC = () => {
                         </th>
                         {gradebookColumns.map((col) => (
                           <th key={col.id} className="px-3 py-3 min-w-[150px] text-center border-r border-slate-200">
-                            <div className="flex items-center justify-center gap-1">
+                            <div className="flex flex-wrap items-center justify-center gap-1">
                               <span className="font-extrabold text-slate-900">{col.title}</span>
                               {col.isLmsAssignment && (
                                 <span className="inline-block bg-indigo-100 text-indigo-700 text-[9px] font-black px-1.5 py-0.5 rounded uppercase" title="LMS Assignment">
                                   LMS
                                 </span>
                               )}
+                              {col.examScheduleId && (
+                                <span className="inline-block bg-purple-100 text-purple-800 text-[9px] font-black px-1.5 py-0.5 rounded uppercase" title={`Auto-synced with Exam Schedule: ${col.examSessionName || 'Exam'}`}>
+                                  Exam Sync
+                                </span>
+                              )}
                             </div>
                             <div className="text-[10px] text-indigo-600 font-extrabold mt-0.5">
                               {col.weightagePercentage}% Wt · Max {col.maxMarks}
                             </div>
-                            <div className="text-[9px] text-slate-400 lowercase font-normal">
-                              {col.categoryName}
+                            <div className="text-[9px] text-slate-400 lowercase font-normal flex items-center justify-center gap-1 mt-0.5">
+                              <span>{col.categoryName}</span>
+                              {!isSectionLocked && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const item = schemeQuery.data?.categories
+                                      ?.flatMap((c) => c.assessments || [])
+                                      ?.find((a) => a.id === col.id);
+                                    setTargetAssessmentForCsv(
+                                      item ||
+                                        ({
+                                          id: col.id,
+                                          title: col.title,
+                                          maxMarks: col.maxMarks,
+                                          category: { name: col.categoryName },
+                                        } as any)
+                                    );
+                                    setCsvRawText('');
+                                    setCsvParsedRows([]);
+                                    setCsvError('');
+                                    setShowUploadCsvModal(true);
+                                  }}
+                                  className="text-slate-400 hover:text-indigo-600 p-0.5 rounded hover:bg-slate-200/50 transition"
+                                  title={`Upload CSV marks for ${col.title}`}
+                                >
+                                  <Upload className="w-2.5 h-2.5" />
+                                </button>
+                              )}
                             </div>
                           </th>
                         ))}
@@ -2865,6 +3340,390 @@ export const AssessmentsPage: React.FC = () => {
                 {requestCorrectionMutation.isPending ? 'Submitting...' : 'Submit Request'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL: CONNECT ASSESSMENT ITEM TO EXAM SCHEDULE                */}
+      {/* ============================================================== */}
+      {showConnectExamModal && targetAssessmentForExam && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-purple-200 max-w-lg w-full p-6 shadow-xl space-y-4">
+            <div className="flex items-center gap-3 text-purple-700">
+              <Link2 className="w-6 h-6 shrink-0" />
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Connect to Term Exam Schedule</h3>
+                <p className="text-xs text-slate-500">
+                  Auto-sync marks from Exams & Grades module into this continuous assessment
+                </p>
+              </div>
+            </div>
+
+            {/* Target Item Info */}
+            <div className="bg-purple-50/70 border border-purple-100 rounded-xl p-3 text-xs space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-purple-950">{targetAssessmentForExam.title}</span>
+                <span className="font-extrabold text-purple-800 bg-purple-100 px-2 py-0.5 rounded">
+                  Max: {targetAssessmentForExam.maxMarks} Marks
+                </span>
+              </div>
+              <div className="text-purple-700">
+                Category: <span className="font-semibold">{targetAssessmentForExam.category?.name || 'Assessment'}</span>
+              </div>
+            </div>
+
+            {/* Available Exam Schedules List */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                Select Exam Schedule (Term {currentAssignment?.academicTerm?.name}):
+              </label>
+
+              {examSchedulesQuery.isLoading ? (
+                <div className="py-6 text-center text-xs text-slate-400">Loading term exam schedules...</div>
+              ) : !examSchedulesQuery.data || examSchedulesQuery.data.length === 0 ? (
+                <div className="p-4 rounded-xl border border-dashed border-slate-200 text-center text-xs text-slate-500 space-y-1">
+                  <AlertCircle className="w-5 h-5 text-amber-500 mx-auto mb-1" />
+                  <p className="font-bold text-slate-700">No exam schedules found for this subject & term.</p>
+                  <p className="text-slate-400">
+                    Create exam sessions (e.g. Midterm or Final Examinations) in the Exams module first.
+                  </p>
+                </div>
+              ) : (
+                <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+                  {examSchedulesQuery.data.map((sched) => {
+                    const isSelected = selectedExamScheduleId === sched.id || (!selectedExamScheduleId && targetAssessmentForExam.examScheduleId === sched.id);
+
+                    return (
+                      <div
+                        key={sched.id}
+                        onClick={() => setSelectedExamScheduleId(sched.id)}
+                        className={`cursor-pointer rounded-xl p-3 border transition text-xs flex items-center justify-between gap-3 ${
+                          isSelected
+                            ? 'bg-purple-50 border-purple-400 ring-2 ring-purple-400/20 shadow-sm'
+                            : 'bg-white border-slate-200 hover:border-purple-200 hover:bg-slate-50/50'
+                        }`}
+                      >
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <span className="font-black text-slate-900">{sched.examSession.name}</span>
+                            <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-slate-100 text-slate-700 uppercase">
+                              {sched.examSession.status}
+                            </span>
+                          </div>
+                          <div className="text-slate-500 text-[11px]">
+                            Max: {sched.maxMarks} marks · Pass: {sched.passingMarks} marks · Date: {sched.examDate ? new Date(sched.examDate).toLocaleDateString() : 'TBD'}
+                          </div>
+                        </div>
+
+                        <input
+                          type="radio"
+                          name="examScheduleSelect"
+                          checked={isSelected}
+                          onChange={() => setSelectedExamScheduleId(sched.id)}
+                          className="text-purple-600 focus:ring-purple-500 shrink-0"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <p className="text-[11px] text-slate-500 bg-slate-50 p-2.5 rounded-lg border border-slate-100 leading-relaxed">
+              💡 <strong>Automatic Scaling:</strong> If the exam schedule's max marks differ from this assessment item's max marks (e.g. 50 vs 100), marks will automatically scale proportionally so weighted percentages remain exact.
+            </p>
+
+            {/* Actions */}
+            <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+              {targetAssessmentForExam.examScheduleId ? (
+                <button
+                  type="button"
+                  disabled={connectExamScheduleMutation.isPending}
+                  onClick={() =>
+                    connectExamScheduleMutation.mutate({
+                      itemId: targetAssessmentForExam.id,
+                      examScheduleId: null,
+                    })
+                  }
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                >
+                  <Unlink className="w-3.5 h-3.5" />
+                  Disconnect Exam
+                </button>
+              ) : <div />}
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowConnectExamModal(false);
+                    setTargetAssessmentForExam(null);
+                  }}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    !selectedExamScheduleId && !targetAssessmentForExam.examScheduleId ||
+                    connectExamScheduleMutation.isPending
+                  }
+                  onClick={async () => {
+                    const schedId = selectedExamScheduleId || targetAssessmentForExam.examScheduleId;
+                    if (!schedId) return;
+                    await connectExamScheduleMutation.mutateAsync({
+                      itemId: targetAssessmentForExam.id,
+                      examScheduleId: schedId,
+                    });
+                    // Immediately trigger a sync
+                    syncExamMarksMutation.mutate(targetAssessmentForExam.id);
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 disabled:opacity-50 rounded-lg shadow-sm transition"
+                >
+                  <Link2 className="w-3.5 h-3.5" />
+                  {connectExamScheduleMutation.isPending ? 'Connecting...' : 'Connect & Sync Now'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL: MANUAL & CSV MARKS UPLOAD (FOR ANY CATEGORY)             */}
+      {/* ============================================================== */}
+      {showUploadCsvModal && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-indigo-200 max-w-2xl w-full p-6 shadow-xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5 text-indigo-700">
+                <Upload className="w-5 h-5 shrink-0" />
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">Upload Manual Marks / CSV</h3>
+                  <p className="text-xs text-slate-500">
+                    Bulk-enter marks for any assessment category (Midterm, Final, Quizzes, Lab, Attendance, etc.)
+                  </p>
+                </div>
+              </div>
+
+              {/* Assessment Item Selector if multiple */}
+              <div className="flex items-center gap-2">
+                <select
+                  value={targetAssessmentForCsv?.id || ''}
+                  onChange={(e) => {
+                    const item = schemeQuery.data?.categories
+                      ?.flatMap((c) => c.assessments || [])
+                      ?.find((a) => a.id === e.target.value);
+                    if (item) {
+                      setTargetAssessmentForCsv(item);
+                      if (csvRawText) parseCsvText(csvRawText, item.maxMarks);
+                    }
+                  }}
+                  className="text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">-- Choose Target Assessment --</option>
+                  {schemeQuery.data?.categories?.flatMap((c) =>
+                    (c.assessments || []).map((item) => (
+                      <option key={item.id} value={item.id}>
+                        [{c.name}] {item.title} ({item.maxMarks} marks)
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+            </div>
+
+            {targetAssessmentForCsv ? (
+              <div className="space-y-4">
+                {/* Component Target Banner & Download Template */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-indigo-50/70 border border-indigo-100 rounded-xl p-3 text-xs">
+                  <div>
+                    <span className="font-extrabold text-indigo-950">{targetAssessmentForCsv.title}</span>
+                    <span className="mx-2 text-indigo-300">·</span>
+                    <span className="text-indigo-800">Category: <strong>{targetAssessmentForCsv.category?.name || 'Assessment'}</strong></span>
+                    <span className="mx-2 text-indigo-300">·</span>
+                    <span className="text-indigo-800">Max Marks: <strong>{targetAssessmentForCsv.maxMarks}</strong></span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadCsvTemplate(targetAssessmentForCsv)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-indigo-700 bg-white hover:bg-indigo-50 border border-indigo-200 rounded-lg shadow-2xs transition shrink-0"
+                    title="Download pre-filled CSV with this section's student roll & admission numbers"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Download Section Template (.csv)
+                  </button>
+                </div>
+
+                {/* CSV File Upload or Paste Box */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <label className="font-bold text-slate-700">Paste Marks Data or Select File:</label>
+                    <label className="cursor-pointer text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1">
+                      <Upload className="w-3 h-3" />
+                      Browse CSV File
+                      <input
+                        type="file"
+                        accept=".csv,.txt,.tsv"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onload = (ev) => {
+                              const text = String(ev.target?.result || '');
+                              setCsvRawText(text);
+                              parseCsvText(text, targetAssessmentForCsv.maxMarks);
+                            };
+                            reader.readAsText(file);
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+
+                  <textarea
+                    rows={4}
+                    placeholder={`Paste CSV or Excel data here, e.g.:\nAdmissionNo/RollNo, Marks, Absent(yes/no), Excused(yes/no), Remarks\nADM-101, 85, no, no, Excellent midterm performance\nADM-102, 92, no, no, Great answer on question 3`}
+                    value={csvRawText}
+                    onChange={(e) => {
+                      const text = e.target.value;
+                      setCsvRawText(text);
+                      parseCsvText(text, targetAssessmentForCsv.maxMarks);
+                    }}
+                    className="w-full font-mono text-xs text-slate-800 bg-slate-50 border border-slate-300 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <p className="text-[11px] text-slate-400">
+                    Supports Comma-separated, Tab-separated (direct Excel/Google Sheets paste), or Semicolon formats. Header row is auto-detected.
+                  </p>
+                </div>
+
+                {/* Parsed Preview Table */}
+                {csvParsedRows.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-bold text-slate-700">
+                        Parsed Preview ({csvParsedRows.length} rows):
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-800">
+                          {csvParsedRows.filter((r) => r.matched && !r.warning).length} Valid
+                        </span>
+                        {csvParsedRows.some((r) => !r.matched || r.warning) && (
+                          <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800">
+                            {csvParsedRows.filter((r) => !r.matched || r.warning).length} Warnings
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-200">
+                      <table className="w-full text-left text-xs text-slate-700">
+                        <thead className="bg-slate-50 font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200 sticky top-0">
+                          <tr>
+                            <th className="px-3 py-2">Identifier</th>
+                            <th className="px-3 py-2">Student Name</th>
+                            <th className="px-3 py-2 w-24">Marks</th>
+                            <th className="px-3 py-2 w-16 text-center">Absent</th>
+                            <th className="px-3 py-2">Remarks</th>
+                            <th className="px-3 py-2">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {csvParsedRows.map((r, i) => (
+                            <tr key={i} className={`hover:bg-slate-50/70 ${!r.matched ? 'bg-rose-50/50' : r.warning ? 'bg-amber-50/40' : ''}`}>
+                              <td className="px-3 py-1.5 font-mono font-bold text-slate-800">{r.identifier}</td>
+                              <td className="px-3 py-1.5 font-semibold text-slate-900">{r.studentName || '—'}</td>
+                              <td className="px-3 py-1.5 font-bold text-indigo-700">
+                                {r.marksObtained !== null && r.marksObtained !== undefined ? r.marksObtained : '—'}
+                              </td>
+                              <td className="px-3 py-1.5 text-center">
+                                {r.isAbsent ? <span className="text-rose-600 font-bold">Yes</span> : '—'}
+                              </td>
+                              <td className="px-3 py-1.5 text-slate-500 truncate max-w-[140px]">{r.remarks || '—'}</td>
+                              <td className="px-3 py-1.5">
+                                {r.warning ? (
+                                  <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded" title={r.warning}>
+                                    {r.warning}
+                                  </span>
+                                ) : r.matched ? (
+                                  <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded">
+                                    Ready
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-bold text-rose-800 bg-rose-100 px-1.5 py-0.5 rounded">
+                                    Unknown ID
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {csvError && (
+                  <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>{csvError}</span>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowUploadCsvModal(false);
+                      setTargetAssessmentForCsv(null);
+                      setCsvRawText('');
+                      setCsvParsedRows([]);
+                    }}
+                    className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={
+                      csvParsedRows.filter((r) => r.matched).length === 0 ||
+                      uploadCsvMarksMutation.isPending
+                    }
+                    onClick={() => {
+                      const validRows = csvParsedRows
+                        .filter((r) => r.matched)
+                        .map((r) => ({
+                          identifier: r.identifier,
+                          marksObtained: r.marksObtained,
+                          isAbsent: r.isAbsent,
+                          isExcused: r.isExcused,
+                          remarks: r.remarks,
+                        }));
+
+                      uploadCsvMarksMutation.mutate({
+                        itemId: targetAssessmentForCsv.id,
+                        rows: validRows,
+                      });
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg shadow-sm transition"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    {uploadCsvMarksMutation.isPending
+                      ? 'Uploading & Recalculating...'
+                      : `Confirm & Upload (${csvParsedRows.filter((r) => r.matched).length} Marks)`}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="py-12 text-center text-xs text-slate-500">
+                Please choose an assessment item from the dropdown above to begin uploading marks.
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -825,6 +825,7 @@ model ExamSchedule {
   subject     Subject     @relation(fields: [subjectId], references: [id], onDelete: Cascade)
   marks       ExamMark[]
   invigilators ExamInvigilator[]
+  assessmentItems AssessmentItem[]
 
   @@unique([examSessionId, subjectId])
   @@map("exam_schedules")
@@ -1033,6 +1034,7 @@ model AssessmentItem {
   weight               Float     @default(1)
   weightagePercentage  Float?
   displayOrder         Int       @default(1)
+  examScheduleId       String?
   assessmentDate       DateTime?
   dueDate              DateTime?
   isPublished          Boolean   @default(false)
@@ -1042,6 +1044,7 @@ model AssessmentItem {
 
   category          AssessmentCategory           @relation(fields: [assessmentCategoryId], references: [id], onDelete: Cascade)
   assignment        Assignment?                  @relation("LmsAssignmentAssessmentItem")
+  examSchedule      ExamSchedule?                @relation(fields: [examScheduleId], references: [id], onDelete: SetNull)
   marks             StudentAssessmentMark[]
   deadlineHistories AssessmentDeadlineHistory[]
   submissions       AssessmentSubmissionRecord[]

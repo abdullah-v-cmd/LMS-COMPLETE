@@ -452,3 +452,22 @@ The unified gradebook matrix (`GET /api/v1/assessments/gradebook`) aggregates al
 - **Strict Tenant Isolation**: Enforced at the middleware layer (`tenant.ts`), including cross-tenant header spoofing rejection (`req.headers['x-institution-id']` validation against user token).
 - **Deadline Extension Audit**: Late submission extensions after expiration dates are tracked in `AssessmentDeadlineHistory` with timestamps, old/new deadlines, and extension rationales.
 
+### Term Exam Schedule Auto-Sync & Manual / CSV Marks Upload Engine
+The assessment system integrates seamlessly with the institution's examination lifecycle and provides bulk marks ingestion:
+1. **Exam Schedule Linkage (`ExamSchedule` <-> `AssessmentItem`)**:
+   - `AssessmentItem.examScheduleId` (Foreign Key -> `ExamSchedule.id`, `onDelete: SetNull`).
+   - Links continuous assessment items (e.g. "Midterm Exam", "Final Exam") directly to an examination timetable slot within the academic term.
+   - **Automated Two-Way Sync**:
+     - Whenever marks are entered or uploaded in the Exams & Grades module (`POST /api/v1/exams/marks`), marks automatically sync to connected `StudentAssessmentMark` records with proportional scaling if maximum marks differ:
+       $$\text{Scaled Mark} = \frac{\text{Exam Marks Obtained} \times \text{Assessment Item Max Marks}}{\text{Exam Schedule Max Marks}}$$
+     - Synchronous trigger of `AssessmentService.recalculateStudentSubjectResult` ensures student overall course results, GPAs, and letter grades are live-updated immediately.
+     - Moderation approval sync: When the Exam Department approves grade changes via maker-checker review (`ExamsService.reviewGradeChange`), the approved correction automatically syncs to the student's continuous assessment grade and recalculates the final course result.
+     - On-demand sync API (`POST /api/v1/assessments/items/:id/sync-exam`) allows re-syncing marks at any point.
+2. **Manual Marks & CSV Bulk Ingestion Engine**:
+   - Universal marks entry for any assessment category (Midterm, Final, Quizzes, Class Participation, Lab Work, etc.).
+   - Bulk CSV upload endpoint: `POST /api/v1/assessments/items/:id/upload-csv`.
+   - Multi-identifier resolution: Accepts student UUID, admission number (`admissionNumber`), or roll number (`rollNumber`).
+   - CSV template generator pre-populated with student rosters (roll numbers, admission numbers, names).
+   - Dynamic client preview modal with auto-delimiter detection (comma, tab, semicolon), header detection, and real-time validation against maximum marks.
+
+

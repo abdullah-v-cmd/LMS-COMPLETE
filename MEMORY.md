@@ -220,10 +220,39 @@ d:\lms2/
   - **Maker-Checker & Correction Requests**: If adjustments are required post-submission, teachers submit formal correction requests with affected student, original marks, proposed marks, and justification. Exam Department reviews and approves or rejects with full audit logs.
   - **Publication & Transcripts**: Exam Controller moderation publishes final grades to official student report cards and permanent academic transcripts.
 - **Verification Evidence**:
-  - `tests/master-lms-assessment-integration.test.ts`: **All 30/30 tests PASSED**.
+  - `tests/master-lms-assessment-integration.test.ts`: **All 33/33 tests PASSED**.
   - `tests/university-assessment-results.test.ts`: **All 20/20 tests PASSED**.
   - `tests/subject-attendance-no-period.test.ts`: **All 10/10 tests PASSED**.
-  - Total automated assessment test suite: **60/60 tests PASSED (0 failures)**.
+  - Total automated assessment test suite: **63/63 tests PASSED (0 failures)**.
   - `npm --prefix client run build`: Exit Code 0 (Production bundle built successfully).
   - `npm --prefix server run build`: Exit Code 0 (TypeScript build succeeded with 0 errors).
   - Both development servers active and healthy: Backend (`localhost:4000`) and Frontend (`localhost:5173`).
+
+---
+
+## 8. Term Exam Schedule Auto-Sync & Manual / CSV Marks Upload (2026-11-03)
+- **Term Exam Schedule Connection (`ExamSchedule` <-> `AssessmentItem`)**:
+  - Direct foreign key relation: `AssessmentItem.examScheduleId` -> `ExamSchedule.id` (`onDelete: SetNull`). Migration `20261102180000_assessment_exam_schedule_connection`.
+  - Allows linking any assessment item (e.g. "Midterm Exam", "Final Exam") to an official examination session and timetable slot in the Exams & Grades module (e.g. "Midterm Examinations 2026-2027").
+  - **Live Auto-Synchronization**:
+    - When marks are entered or uploaded in the Exams & Grades module (`POST /api/v1/exams/marks`, `ExamsService.enterMarks`), marks automatically sync to connected `StudentAssessmentMark` records against each student.
+    - Proportional scaling: if `ExamSchedule.maxMarks` differs from `AssessmentItem.maxMarks`, marks are automatically scaled ($marksObtained \times item.maxMarks / schedule.maxMarks$).
+    - Triggers live `AssessmentService.recalculateStudentSubjectResult` to immediately update section gradebook matrices, GPAs, and subject letter grades.
+    - Exam grade correction sync: When the Exam Department approves a grade change (`ExamsService.reviewGradeChange`), the corrected score automatically syncs to the assessment mark and triggers live result recalculation.
+    - On-demand sync API: `POST /api/v1/assessments/items/:id/sync-exam` allows teachers or administrators to re-sync marks at any time.
+    - Connect API: `POST /api/v1/assessments/items/:id/connect-exam` connects or disconnects an exam schedule, with optional immediate sync (`syncNow: true`).
+- **Manual Marks Entry & CSV Bulk Upload for Any Category**:
+  - Full manual marks entry and bulk CSV upload available for all assessment categories: Midterm, Final, Quizzes, Class Participation, Lab Work, Presentations, Projects, etc.
+  - API endpoint: `POST /api/v1/assessments/items/:id/upload-csv`.
+  - Flexible student identifier lookup: accepts Student UUID, Admission Number (`admissionNumber`), or Roll Number (`rollNumber`).
+  - Supports comma (`,`), tab (`\t`), or semicolon (`;`) delimiters with auto-header detection.
+  - Automatically verifies section lock status and checks each student's mark against `maxMarks`.
+  - Pre-populated CSV template generation in frontend: downloads `.csv` pre-filled with student roll numbers, admission numbers, and full names.
+  - Interactive upload modal with drag-and-drop, raw text paste, live preview table, and real-time validation counters (Valid vs. Warning).
+- **Verification Evidence**:
+  - `tests/master-lms-assessment-integration.test.ts` (33/33 tests passing):
+    - Test 31: Term Exam Schedule can be connected to an Assessment Item.
+    - Test 32: Marks entered in Exams module automatically sync to connected AssessmentItem and recalculate live course results.
+    - Test 33: Manual marks can be bulk uploaded via CSV for any assessment category.
+  - Zero TypeScript compile errors in `server/` and `client/`.
+

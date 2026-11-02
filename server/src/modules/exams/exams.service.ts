@@ -4,6 +4,7 @@ import { AuthenticatedUser } from '../../types';
 import { calculateGrade, DEFAULT_GRADE_BANDS } from './grading';
 import { env } from '../../config/env';
 import { signReportCard, verifyReportCardSignature } from './report-card-integrity';
+import { AssessmentService } from '../assessment/assessment.service';
 
 export class ExamsService {
   static async getGradingScale(institutionId: string) {
@@ -240,7 +241,7 @@ export class ExamsService {
       if (!students.every((student) => sectionIds.has(student.sectionId))) throw { status: 403, message: 'Marks may only be entered for students in your assigned subject sections' };
     }
 
-    return prisma.$transaction(async (tx) => {
+    const res = await prisma.$transaction(async (tx) => {
       const results = [];
       for (const item of data.marks) {
         if (item.marksObtained > schedule.maxMarks) {
@@ -275,8 +276,76 @@ export class ExamsService {
         });
         results.push(mark);
       }
-      return results;
+
+      // Automatically sync marks to connected Assessment Items (e.g., Midterm or Final)
+      const connectedItems = await tx.assessmentItem.findMany({
+        where: { examScheduleId: data.examScheduleId },
+        include: {
+          category: {
+            include: {
+              assessmentScheme: true,
+            },
+          },
+        },
+      });
+
+      for (const cItem of connectedItems) {
+        for (const item of data.marks) {
+          let scaledMarks = item.marksObtained;
+          if (schedule.maxMarks > 0 && cItem.maxMarks > 0 && schedule.maxMarks !== cItem.maxMarks) {
+            scaledMarks = Number(((item.marksObtained / schedule.maxMarks) * cItem.maxMarks).toFixed(2));
+          }
+
+          await tx.studentAssessmentMark.upsert({
+            where: {
+              assessmentItemId_studentId: {
+                assessmentItemId: cItem.id,
+                studentId: item.studentId,
+              },
+            },
+            create: {
+              assessmentItemId: cItem.id,
+              studentId: item.studentId,
+              marksObtained: item.isAbsent ? 0 : scaledMarks,
+              isAbsent: item.isAbsent || false,
+              isExcused: false,
+              remarks: item.remarks || 'Auto-synced from Exam Marks',
+              enteredByUserId: user.id,
+              status: 'PUBLISHED',
+            },
+            update: {
+              marksObtained: item.isAbsent ? 0 : scaledMarks,
+              isAbsent: item.isAbsent || false,
+              remarks: item.remarks || 'Auto-synced from Exam Marks',
+              enteredByUserId: user.id,
+              updatedAt: new Date(),
+            },
+          });
+        }
+      }
+
+      return { marks: results, connectedItems };
     });
+
+    // Recalculate subject results for all affected students and connected items
+    if (res.connectedItems && res.connectedItems.length > 0) {
+      for (const cItem of res.connectedItems) {
+        const scheme = cItem.category.assessmentScheme;
+        for (const item of data.marks) {
+          const student = students.find((s) => s.id === item.studentId);
+          await AssessmentService.recalculateStudentSubjectResult(
+            institutionId,
+            item.studentId,
+            schedule!.subjectId,
+            student?.sectionId || scheme.sectionId || '',
+            scheme.academicTermId,
+            scheme.id
+          ).catch(() => {});
+        }
+      }
+    }
+
+    return res.marks;
   }
 
   static async requestGradeChange(
@@ -347,7 +416,7 @@ export class ExamsService {
     }
     if (changeReq.examMark.examSchedule.examSession.status === ExamSessionStatus.PUBLISHED) throw { status: 409, message: 'Published results cannot be changed' };
 
-    return prisma.$transaction(async (tx) => {
+    const updatedReq = await prisma.$transaction(async (tx) => {
       const claimed = await tx.gradeChangeRequest.updateMany({
         where: { id: requestId, status: CorrectionStatus.PENDING },
         data: {
@@ -369,10 +438,71 @@ export class ExamsService {
           },
         });
         if (updatedMark.count !== 1) throw { status: 409, message: 'The mark changed after this request was submitted' };
+
+        // Also sync to connected AssessmentItems
+        const connectedItems = await tx.assessmentItem.findMany({
+          where: { examScheduleId: changeReq.examMark.examScheduleId },
+          include: { category: { include: { assessmentScheme: true } } },
+        });
+
+        for (const cItem of connectedItems) {
+          const schedule = changeReq.examMark.examSchedule;
+          let scaledMarks = changeReq.proposedMarks;
+          if (schedule.maxMarks > 0 && cItem.maxMarks > 0 && schedule.maxMarks !== cItem.maxMarks) {
+            scaledMarks = Number(((changeReq.proposedMarks / schedule.maxMarks) * cItem.maxMarks).toFixed(2));
+          }
+
+          await tx.studentAssessmentMark.upsert({
+            where: {
+              assessmentItemId_studentId: {
+                assessmentItemId: cItem.id,
+                studentId: changeReq.examMark.studentId,
+              },
+            },
+            update: {
+              marksObtained: scaledMarks,
+              remarks: `Updated via Exam Grade Change: ${changeReq.reason}`,
+              enteredByUserId: reviewerUserId,
+              updatedAt: new Date(),
+            },
+            create: {
+              assessmentItemId: cItem.id,
+              studentId: changeReq.examMark.studentId,
+              marksObtained: scaledMarks,
+              remarks: `Updated via Exam Grade Change: ${changeReq.reason}`,
+              enteredByUserId: reviewerUserId,
+              status: 'PUBLISHED',
+            },
+          });
+        }
       }
 
       return updatedReq;
     });
+
+    if (data.status === 'APPROVED') {
+      const connectedItems = await prisma.assessmentItem.findMany({
+        where: { examScheduleId: changeReq.examMark.examScheduleId },
+        include: { category: { include: { assessmentScheme: true } } },
+      });
+      for (const cItem of connectedItems) {
+        const scheme = cItem.category.assessmentScheme;
+        const student = await prisma.studentProfile.findUnique({
+          where: { id: changeReq.examMark.studentId },
+          select: { sectionId: true },
+        });
+        await AssessmentService.recalculateStudentSubjectResult(
+          institutionId,
+          changeReq.examMark.studentId,
+          changeReq.examMark.examSchedule.subjectId,
+          student?.sectionId || scheme.sectionId || '',
+          scheme.academicTermId,
+          scheme.id
+        ).catch(() => {});
+      }
+    }
+
+    return updatedReq;
   }
 
   static async publishResults(institutionId: string, examSessionId: string) {

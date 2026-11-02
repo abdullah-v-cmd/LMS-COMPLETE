@@ -314,5 +314,62 @@ export class AssessmentController {
       next(error);
     }
   }
+
+  static async getExamSchedules(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const { subjectId, academicTermId } = req.query as { subjectId: string; academicTermId: string };
+      const schedules = await AssessmentService.getExamSchedulesForSubject(
+        req.institutionId!,
+        subjectId,
+        academicTermId
+      );
+      return sendSuccess(res, schedules);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async connectExamSchedule(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const result = await AssessmentService.connectExamSchedule(
+        req.institutionId!,
+        req.user!,
+        req.params.id,
+        req.body.examScheduleId || null,
+        req.body.syncNow !== false
+      );
+      return sendSuccess(res, result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async syncExamScheduleMarks(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const result = await AssessmentService.syncExamScheduleMarks(
+        req.institutionId!,
+        req.user!,
+        req.params.id
+      );
+      return sendSuccess(res, result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async uploadManualMarksCsv(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const result = await AssessmentService.uploadManualMarksCsv(
+        req.institutionId!,
+        req.user!,
+        req.params.id,
+        req.body.rows
+      );
+      return sendSuccess(res, result);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
+
 
