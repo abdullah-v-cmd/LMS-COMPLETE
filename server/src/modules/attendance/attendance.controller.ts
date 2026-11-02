@@ -21,7 +21,7 @@ export class AttendanceController {
 
   static async getSubjectRoster(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      return sendSuccess(res, await AttendanceService.getSubjectRoster(req.institutionId!, req.user!, req.params.sectionId, String(req.query.subjectId), String(req.query.date), Number(req.query.periodNumber)));
+      return sendSuccess(res, await AttendanceService.getSubjectRoster(req.institutionId!, req.user!, req.params.sectionId, String(req.query.subjectId), String(req.query.date)));
     } catch (error) { next(error); }
   }
 

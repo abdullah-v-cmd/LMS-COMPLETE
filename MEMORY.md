@@ -192,3 +192,31 @@ d:\lms2/
   - Client production build: `npm run build` in `client/` passed (0 errors, code 0, 495 kB bundle).
   - Vitest test suite: 15 test files passed, 79/79 tests passed (0 failures).
   - PostgreSQL test database status: `localhost:5432` is confirmed unreachable (`Test-NetConnection` port 5432 failed, no `psql` command, Docker inactive). Database workflow tests remain intentionally un-executed until an isolated test environment is provisioned.
+
+---
+
+## 7. Academic Assessment, Unified Gradebook & Examination Integration (2026-11-02)
+- **Period-Based Attendance Removal**:
+  - Successfully removed all period-based attendance requirements from the schema and application.
+  - Subject teachers mark daily attendance directly for their assigned subject, class, section, and date with duplicate prevention and audit logging.
+  - Verified with 9/9 passing tests in `tests/subject-attendance-no-period.test.ts`.
+- **University Assessment Schemes & Exact Mathematical Weightages**:
+  - Strict validation enforcing exact 100% total weightage across assessment categories.
+  - Migration `20261102120000_university_assessment_results` and `20261102140000_lms_assignment_assessment_integration` applied to PostgreSQL.
+  - 1:1 foreign key relation `assignment.assessmentItemId` linking LMS Course Assignments with authoritative Assessment Items.
+  - Exact weighted contribution formula: `Weighted contribution = (Student Marks / Max Marks) * Component Weightage`.
+  - Example: Assignment 1 (98/100 * 15% = 14.70), Assignment 2 (66/100 * 15% = 9.90) yields total assignments contribution of 24.60/30. Adding Participation (10%), Midterm (20%), and Final (40%) produces overall final score 83.60/100 and Letter Grade A-.
+- **Unified Teacher Gradebook Matrix**:
+  - Interactive grid matrix displaying all configured assessment components, raw marks, live calculated weighted contributions, cumulative total score out of 100%, letter grades, GPA points, and summary statistics (Class Average, Highest, Lowest, Pass Rate).
+  - Live real-time recalculation upon mark changes and transactional batch save via `POST /api/v1/assessments/gradebook/save`.
+- **Two-Button Submission & Governance Lifecycle**:
+  - **Button A: Submit (To Students)**: Updates provisional status to `GRADE IN PROGRESS` visible to students and parents while preserving teacher editing rights.
+  - **Button B: Submit to Exam Department**: Forwards subject results to the Examination Department for moderation and immediately locks teacher editing (`403 Forbidden` on any further direct edits or assignment grading).
+  - **Maker-Checker & Correction Requests**: If adjustments are required post-submission, teachers submit formal correction requests with affected student, original marks, proposed marks, and justification. Exam Department reviews and approves or rejects with full audit logs.
+  - **Publication & Transcripts**: Exam Controller moderation publishes final grades to official student report cards and permanent academic transcripts.
+- **Verification Evidence**:
+  - `tests/master-lms-assessment-integration.test.ts`: **All 24/24 tests PASSED**.
+  - `tests/university-assessment-results.test.ts`: **All 20/20 tests PASSED**.
+  - `npm --prefix client run build`: Exit Code 0 (Production bundle built successfully).
+  - `npm --prefix server run build`: Exit Code 0 (TypeScript build succeeded with 0 errors).
+  - Both development servers active and healthy: Backend (`localhost:4000`) and Frontend (`localhost:5173`).

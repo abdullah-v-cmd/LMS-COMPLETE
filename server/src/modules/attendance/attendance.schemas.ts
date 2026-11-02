@@ -24,12 +24,12 @@ export const markSubjectAttendanceSchema = z.object({
   sectionId: z.string().uuid(),
   subjectId: z.string().uuid(),
   date: calendarDate,
-  periodNumber: z.number().int().min(1).max(20),
+  periodNumber: z.number().int().min(1).max(20).optional(),
   records: z.array(z.object({
     studentId: z.string().uuid(),
     status: z.nativeEnum(AttendanceStatus),
     remarks: z.string().max(500).optional(),
-  })).min(1).max(500),
+  })).min(1, 'At least one student record must be marked').max(500, 'An attendance batch cannot exceed 500 students'),
 }).refine((data) => new Set(data.records.map((record) => record.studentId)).size === data.records.length, {
   path: ['records'], message: 'A student may appear only once in an attendance batch',
 });
@@ -60,7 +60,7 @@ export const attendanceRosterQuerySchema = z.object({
 export const subjectRosterQuerySchema = z.object({
   date: calendarDate,
   subjectId: z.string().uuid(),
-  periodNumber: z.coerce.number().int().min(1).max(20),
+  periodNumber: z.coerce.number().int().min(1).max(20).optional(),
 });
 
 export const requestCorrectionSchema = z.object({

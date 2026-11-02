@@ -227,3 +227,35 @@
     - Authored comprehensive operations checklist and deployment guide.
   - **Relevant Files**: `server/src/config/env.ts`, `server/src/app.ts`, `docker-compose.yml`, `DEPLOYMENT.md`, `DEPLOYMENT_READINESS_CHECKLIST.md`.
   - **Evidence**: Witnessed disaster recovery drill executed and confirmed. Both `server/` and `client/` production bundles built cleanly (`npm run build:server; npm run build:client` exit code 0). Docker containers `lms-postgres-1` (port 5432) and `lms-redis-1` (port 6379) healthy and running. External cloud hosting, custom domain DNS, and hosted CI execution remain explicitly labeled as BLOCKED / NOT RUN awaiting external credentials per local-only policy.
+
+---
+
+### Phase 10: Academic Assessment, Unified Gradebook & Examination Lifecycle Integration
+- [x] **TASK-P10-01**
+  - **Feature**: Period-Based Attendance Removal
+  - **Implementation Scope**: Completely eliminated period dropdowns, period numbers, and timetable period requirements. Subject teachers mark attendance directly for their assigned subject, class, section, and date with duplicate prevention and record preservation.
+  - **Relevant Files**: `server/prisma/schema.prisma`, `server/prisma/migrations/20261102000000_remove_period_attendance/`, `server/src/modules/attendance/*`, `client/src/pages/AttendancePage.tsx`.
+  - **Status**: VERIFIED
+  - **Evidence**: `tests/subject-attendance-no-period.test.ts` (9/9 passed).
+
+- [x] **TASK-P10-02**
+  - **Feature**: University Assessment Scheme, Categories & Weightage Management
+  - **Implementation Scope**: Assessment scheme builder enforcing exact 100% total weightage. Assessment categories with percentages, individual assessment items, deadline extension tracking with `AssessmentDeadlineHistory`, and section result calculation.
+  - **Relevant Files**: `server/prisma/schema.prisma`, `server/prisma/migrations/20261102120000_university_assessment_results/`, `server/src/modules/assessment/*`, `client/src/pages/AssessmentsPage.tsx`.
+  - **Status**: VERIFIED
+  - **Evidence**: `tests/university-assessment-results.test.ts` (20/20 passed).
+
+- [x] **TASK-P10-03**
+  - **Feature**: Master LMS Academic Assessment, Unified Gradebook & Examination Integration
+  - **Implementation Scope**:
+    - Single authoritative marks system linking LMS Course Assignments (`assignmentId`) with Assessment Items (`assessmentItemId`) 1:1 via migration `20261102140000_lms_assignment_assessment_integration`.
+    - Mathematical exactness: `Weighted contribution = (Obtained / Max) * Weightage` (e.g. Assign 1 = 15%, Assign 2 = 15%, Participation = 10%, Midterm = 20%, Final = 40% producing exact 24.6/30 for assignments and 83.6/100 final score).
+    - Unified Teacher Gradebook Matrix UI (`/assessments?tab=gradebook` and link in `/courses`): Live real-time weighted contributions, live total/grade recalculation, batch save with `saveGradebookMarks`, summary statistics (Class Average, Highest, Lowest, Pass Rate).
+    - Two-Button Submission Process:
+      - Button A: Submit (To Students) sets student-visible status to `GRADE IN PROGRESS` while preserving teacher editing rights.
+      - Button B: Submit to Exam Department forwards marks for official review and locks direct teacher editing (returns `403 Forbidden` on direct edits).
+    - Exam Department Moderation & Dual-Governance: Exam controllers review, approve, or request corrections. Teachers submit formal correction requests with before/after marks and reasons, recorded in immutable audit logs.
+    - Publication & Transcripts: Approved results update student report cards and official transcripts. Strict role isolation (students and parents view only their own records, cross-tenant requests rejected).
+  - **Relevant Files**: `server/prisma/schema.prisma`, `server/prisma/migrations/20261102140000_lms_assignment_assessment_integration/`, `server/src/modules/lms/*`, `server/src/modules/assessment/*`, `client/src/pages/AssessmentsPage.tsx`, `client/src/pages/CoursesPage.tsx`, `server/tests/master-lms-assessment-integration.test.ts`.
+  - **Status**: VERIFIED
+  - **Evidence**: `tests/master-lms-assessment-integration.test.ts` (24/24 passed), `tests/university-assessment-results.test.ts` (20/20 passed), both client and server builds exit code 0.

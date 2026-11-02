@@ -1,5 +1,5 @@
 import { prisma } from '../../utils/prisma';
-import { CorrectionStatus, ExamSessionStatus, UserRole } from '@prisma/client';
+import { CorrectionStatus, ExamSessionStatus, SubjectResultStatus, UserRole } from '@prisma/client';
 import { AuthenticatedUser } from '../../types';
 import { calculateGrade, DEFAULT_GRADE_BANDS } from './grading';
 import { env } from '../../config/env';
@@ -400,20 +400,28 @@ export class ExamsService {
       where: { status: CorrectionStatus.PENDING, examMark: { examSchedule: { examSessionId } } },
     });
     if (pendingChanges > 0) throw { status: 409, message: 'Resolve all pending grade change requests before publication' };
+
+    const totalMarksCount = session.schedules.reduce((acc, s) => acc + s.marks.length, 0);
+    if (totalMarksCount === 0) {
+      throw { status: 400, message: 'Cannot publish results: No student marks have been entered for this exam session yet.' };
+    }
+
+    // Verify marks completeness for schedules that have been conducted and marked
     for (const schedule of session.schedules) {
+      if (schedule.marks.length === 0) continue;
       const assignments = await prisma.teacherAssignment.findMany({
         where: { subjectId: schedule.subjectId },
         select: { sectionId: true },
       });
       const sectionIds = [...new Set(assignments.map((assignment) => assignment.sectionId))];
-      if (sectionIds.length === 0) throw { status: 409, message: `No class sections are assigned to ${schedule.subject.name}` };
+      if (sectionIds.length === 0) continue;
       const roster = await prisma.studentProfile.findMany({
         where: { institutionId, sectionId: { in: sectionIds }, status: 'ENROLLED' },
         select: { id: true },
       });
       const markedIds = new Set(schedule.marks.map((mark) => mark.studentId));
-      if (roster.some((student) => !markedIds.has(student.id))) {
-        throw { status: 409, message: `Marks are incomplete for ${schedule.subject.name}` };
+      if (roster.length > 0 && roster.some((student) => !markedIds.has(student.id))) {
+        throw { status: 409, message: `Marks are incomplete for ${schedule.subject.name} (some enrolled students are missing scores)` };
       }
     }
 
@@ -490,14 +498,22 @@ export class ExamsService {
     });
   }
 
-  static async getReportCards(institutionId: string, user: AuthenticatedUser, studentId?: string) {
+  static async getReportCards(institutionId: string, user: AuthenticatedUser, studentId?: string, examSessionId?: string, sectionId?: string) {
     let whereCondition: any = { institutionId };
 
-    if (user.role === UserRole.ROLE_STUDENT) {
-      const studentProfile = await prisma.studentProfile.findUnique({
-        where: { userId: user.id },
-      });
+    const studentProfile = await prisma.studentProfile.findFirst({
+      where: { userId: user.id },
+    });
+    const isStudent = user.role === UserRole.ROLE_STUDENT || String(user.role).toUpperCase().includes('STUDENT');
+
+    if (isStudent || studentProfile) {
       if (!studentProfile || studentProfile.institutionId !== institutionId) return [];
+
+      // Security: Students can only view their own report cards
+      if (studentId && studentId !== studentProfile.id) {
+        throw { status: 403, message: 'Access denied: You may only view your own report cards' };
+      }
+
       whereCondition = {
         institutionId,
         studentId: studentProfile.id,
@@ -530,11 +546,43 @@ export class ExamsService {
           isPublished: true,
         };
       }
-    } else if (studentId) {
-      whereCondition = {
-        institutionId,
-        studentId,
-      };
+    } else if (
+      user.role === UserRole.ROLE_SUBJECT_TEACHER ||
+      user.role === UserRole.ROLE_TEACHING_ASSISTANT ||
+      user.role === UserRole.ROLE_CLASS_TEACHER
+    ) {
+      // Teachers only see report cards for students in their assigned sections
+      const teacher = await prisma.teacherProfile.findFirst({ where: { userId: user.id, institutionId } });
+      if (!teacher) return [];
+      const assignments = await prisma.teacherAssignment.findMany({ where: { teacherId: teacher.id } });
+      const allowedSectionIds = [...new Set(assignments.map((a) => a.sectionId))];
+      if (allowedSectionIds.length === 0) return [];
+
+      const targetSectionIds = sectionId
+        ? allowedSectionIds.filter((id) => id === sectionId)
+        : allowedSectionIds;
+
+      if (targetSectionIds.length === 0) return [];
+
+      if (studentId) {
+        const student = await prisma.studentProfile.findFirst({ where: { id: studentId, sectionId: { in: targetSectionIds } } });
+        if (!student) throw { status: 403, message: 'Access denied: Student is not in your assigned section' };
+        whereCondition = { institutionId, studentId, isPublished: true };
+      } else {
+        whereCondition = { institutionId, student: { sectionId: { in: targetSectionIds } }, isPublished: true };
+      }
+    } else {
+      // Admin / Exam Controller / Academic Head
+      if (studentId) {
+        whereCondition.studentId = studentId;
+      }
+      if (sectionId) {
+        whereCondition.student = { sectionId };
+      }
+    }
+
+    if (examSessionId) {
+      whereCondition.examSessionId = examSessionId;
     }
 
     const cards = await prisma.studentReportCard.findMany({
@@ -603,9 +651,42 @@ export class ExamsService {
           };
         });
 
+        // Enrich with university-style assessment subject results for this student and academic term
+        let assessmentSubjectResults: any[] = [];
+        if (card.examSession.academicTermId) {
+          const sResults = await prisma.subjectResult.findMany({
+            where: {
+              studentId: card.studentId,
+              academicTermId: card.examSession.academicTermId,
+              institutionId,
+            },
+            include: { subject: true },
+          });
+
+          assessmentSubjectResults = (sResults as any[])
+            .filter((sr: any) => sr.status !== SubjectResultStatus.DRAFT)
+            .map((sr: any) => {
+              const isOfficial = sr.status === SubjectResultStatus.OFFICIALLY_PUBLISHED;
+              return {
+                id: sr.id,
+                subjectId: sr.subjectId,
+                subjectName: sr.subject.name,
+                subjectCode: sr.subject.code,
+                categoryBreakdown: sr.categoryBreakdown,
+                totalPercentage: sr.totalPercentage,
+                gradeLetter: isOfficial ? sr.gradeLetter : 'GRADE IN PROGRESS',
+                gpa: isOfficial ? sr.gpa : null,
+                status: sr.status,
+                isOfficiallyPublished: isOfficial,
+                gradeInProgress: !isOfficial,
+              };
+            });
+        }
+
         return {
           ...card,
           subjectMarks,
+          assessmentSubjectResults,
         };
       })
     );

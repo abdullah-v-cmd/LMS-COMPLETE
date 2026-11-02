@@ -20,6 +20,7 @@ import {
   ClipboardList,
   Banknote,
   BarChart3,
+  Layers,
 } from 'lucide-react';
 
 interface NavItem {
@@ -121,6 +122,22 @@ export const Sidebar: React.FC = () => {
         'ROLE_ACADEMIC_HEAD',
         'ROLE_EXAM_CONTROLLER',
         'ROLE_SUBJECT_TEACHER',
+        'ROLE_STUDENT',
+        'ROLE_PARENT',
+      ],
+    },
+    {
+      name: 'Assessment & Results',
+      to: '/assessments',
+      icon: Layers,
+      roles: [
+        'ROLE_SUPER_ADMIN',
+        'ROLE_INSTITUTION_ADMIN',
+        'ROLE_ACADEMIC_HEAD',
+        'ROLE_EXAM_CONTROLLER',
+        'ROLE_SUBJECT_TEACHER',
+        'ROLE_CLASS_TEACHER',
+        'ROLE_TEACHING_ASSISTANT',
         'ROLE_STUDENT',
         'ROLE_PARENT',
       ],

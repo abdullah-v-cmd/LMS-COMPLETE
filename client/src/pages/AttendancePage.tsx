@@ -24,14 +24,14 @@ type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED' | 'HALF_DAY';
 type Section = { id: string; name: string; classGrade: { id: string; name: string } };
 type SubjectAssignment = { sectionId: string; subjectId: string; section: { name: string; classGrade: { name: string } }; subject: { name: string; code: string } };
 type AttendanceRecord = { id: string; studentId: string; status: AttendanceStatus; remarks: string | null; date: string; lockedAt: string | null; section?: { name: string }; student?: { admissionNumber: string; rollNumber: string | null; user: { id: string; firstName: string; lastName: string } } };
-type SubjectAttendanceRecord = { id: string; status: AttendanceStatus; date: string; periodNumber: number; remarks?: string | null; lockedAt: string | null; student: { admissionNumber: string; user: { firstName: string; lastName: string } }; section: { name: string }; subject: { id?: string; name: string; code: string } };
+type SubjectAttendanceRecord = { id: string; status: AttendanceStatus; date: string; periodNumber?: number | null; remarks?: string | null; lockedAt: string | null; createdAt?: string; student: { admissionNumber: string; user: { firstName: string; lastName: string } }; section: { name: string }; subject: { id?: string; name: string; code: string } };
 type AttendanceSummary = { student: { admissionNumber: string; rollNumber: string | null; user: { firstName: string; lastName: string }; section: { name: string; classGrade: { name: string } } }; totalSchoolDays: number; absentDays: number; excusedDays: number; absenceRatePercent: number; chronicAbsentee: boolean };
 type RosterStudent = {
   id: string;
   rollNumber: string | null;
   admissionNumber: string;
   user: { firstName: string; lastName: string };
-  attendance: { id: string; status: AttendanceStatus; remarks: string | null; lockedAt: string | null } | null;
+  attendance: { id: string; status: AttendanceStatus; remarks: string | null; lockedAt: string | null; createdAt?: string } | null;
 };
 type Correction = {
   id: string;
@@ -45,7 +45,7 @@ type Correction = {
   };
   subjectAttendanceRecord?: {
     status: AttendanceStatus;
-    periodNumber: number;
+    periodNumber?: number | null;
     student: { admissionNumber: string; rollNumber: string | null; user: { firstName: string; lastName: string } };
     section: { name: string; classGrade: { name: string } };
     subject: { name: string; code: string };
@@ -92,7 +92,6 @@ export const AttendancePage: React.FC = () => {
   const [date, setDate] = useState(today());
   const [sectionId, setSectionId] = useState('');
   const [subjectAssignmentKey, setSubjectAssignmentKey] = useState('');
-  const [periodNumber, setPeriodNumber] = useState(1);
   const [subjectDraftStatuses, setSubjectDraftStatuses] = useState<Record<string, AttendanceStatus>>({});
   const [subjectCorrectionDrafts, setSubjectCorrectionDrafts] = useState<Record<string, { status: AttendanceStatus; reason: string }>>({});
   const [draftStatuses, setDraftStatuses] = useState<Record<string, AttendanceStatus>>({});
@@ -139,8 +138,8 @@ export const AttendancePage: React.FC = () => {
   }, [subjectAssignmentKey, subjectAssignmentsQuery.data]);
   const selectedSubjectAssignment = subjectAssignmentsQuery.data?.find((item) => `${item.sectionId}:${item.subjectId}` === subjectAssignmentKey);
   const subjectRosterQuery = useQuery({
-    queryKey: ['attendance-subject-roster', subjectAssignmentKey, date, periodNumber],
-    queryFn: async () => (await apiClient.get(`/attendance/sections/${selectedSubjectAssignment!.sectionId}/subject-roster`, { params: { subjectId: selectedSubjectAssignment!.subjectId, date, periodNumber } })).data.data as RosterStudent[],
+    queryKey: ['attendance-subject-roster', subjectAssignmentKey, date],
+    queryFn: async () => (await apiClient.get(`/attendance/sections/${selectedSubjectAssignment!.sectionId}/subject-roster`, { params: { subjectId: selectedSubjectAssignment!.subjectId, date } })).data.data as RosterStudent[],
     enabled: canMark && Boolean(selectedSubjectAssignment) && Boolean(date),
   });
   useEffect(() => {
@@ -287,11 +286,24 @@ export const AttendancePage: React.FC = () => {
     onError: (err) => { setNotice(''); setError(messageFor(err)); },
   });
 
+  const isSubjectAttendanceLocked = useMemo(() => {
+    if (!subjectRosterQuery.data || subjectRosterQuery.data.length === 0) return false;
+    return subjectRosterQuery.data.every((student) => Boolean(student.attendance?.lockedAt));
+  }, [subjectRosterQuery.data]);
+
   const markSubjectMutation = useMutation({
     mutationFn: async () => {
       const rows = subjectRosterQuery.data?.filter((student) => !student.attendance) ?? [];
       if (!selectedSubjectAssignment || !rows.length) throw new Error('There are no unmarked students to submit.');
-      return apiClient.post('/attendance/subjects/mark', { sectionId: selectedSubjectAssignment.sectionId, subjectId: selectedSubjectAssignment.subjectId, date, periodNumber, records: rows.map((student) => ({ studentId: student.id, status: subjectDraftStatuses[student.id] ?? 'PRESENT' })) });
+      return apiClient.post('/attendance/subjects/mark', {
+        sectionId: selectedSubjectAssignment.sectionId,
+        subjectId: selectedSubjectAssignment.subjectId,
+        date,
+        records: rows.map((student) => ({
+          studentId: student.id,
+          status: subjectDraftStatuses[student.id] ?? 'PRESENT',
+        })),
+      });
     },
     onSuccess: async () => {
       setError(''); setNotice('Subject attendance saved and locked.');
@@ -658,7 +670,7 @@ export const AttendancePage: React.FC = () => {
                   Subject Lecture History Log ({filteredSubjectRecords.length} Sessions)
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Individual lectures marked by subject teachers, including period numbers and verified statuses.
+                  Individual lectures marked by subject teachers, including verified statuses.
                 </p>
               </div>
               {selectedSubjectFilter !== 'ALL' && (
@@ -682,7 +694,6 @@ export const AttendancePage: React.FC = () => {
                   <thead className="sticky top-0 bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
                     <tr>
                       <th className="p-3">Date</th>
-                      <th className="p-3">Period</th>
                       <th className="p-3">Subject</th>
                       <th className="p-3">Student Name</th>
                       <th className="p-3">Class & Section</th>
@@ -701,11 +712,6 @@ export const AttendancePage: React.FC = () => {
                         <tr key={r.id} className="hover:bg-slate-50/50">
                           <td className="p-3 font-semibold text-slate-800">
                             {new Date(r.date).toLocaleDateString()}
-                          </td>
-                          <td className="p-3">
-                            <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-mono font-bold text-slate-700">
-                              P-{r.periodNumber}
-                            </span>
                           </td>
                           <td className="p-3 font-bold text-slate-900">
                             {r.subject.name} <span className="font-normal text-slate-400">({r.subject.code})</span>
@@ -829,24 +835,41 @@ export const AttendancePage: React.FC = () => {
             <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
                 <div>
-                  <h2 className="text-lg font-semibold text-slate-900">Subject and period attendance</h2>
-                  <p className="text-sm text-slate-500">Mark an assigned subject lesson; records lock after saving.</p>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-semibold text-slate-900">Subject Attendance</h2>
+                    {isSubjectAttendanceLocked && (
+                      <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800">
+                        Already Submitted · Locked
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-slate-500">Mark attendance for an assigned subject lesson; records lock after saving.</p>
                 </div>
                 <div className="flex flex-wrap gap-3">
-                  <label className="text-sm font-medium">Assigned subject
-                    <select value={subjectAssignmentKey} onChange={(e) => setSubjectAssignmentKey(e.target.value)} className="mt-1 block min-w-56 rounded-lg border border-slate-300 bg-white px-3 py-2">
+                  <label className="text-sm font-medium">Assigned subject & section
+                    <select value={subjectAssignmentKey} onChange={(e) => setSubjectAssignmentKey(e.target.value)} className="mt-1 block min-w-64 rounded-lg border border-slate-300 bg-white px-3 py-2 font-medium">
                       {(subjectAssignmentsQuery.data ?? []).map((item) => (
                         <option key={`${item.sectionId}:${item.subjectId}`} value={`${item.sectionId}:${item.subjectId}`}>
-                          {item.section.classGrade.name} · {item.section.name} · {item.subject.name}
+                          {item.section.classGrade.name} · {item.section.name} · {item.subject.name} ({item.subject.code})
                         </option>
                       ))}
                     </select>
                   </label>
-                  <label className="text-sm font-medium">Period
-                    <input type="number" min={1} max={20} value={periodNumber} onChange={(e) => setPeriodNumber(Number(e.target.value))} className="mt-1 block w-24 rounded-lg border border-slate-300 px-3 py-2"/>
-                  </label>
                 </div>
               </div>
+
+              {isSubjectAttendanceLocked && (
+                <div className="mb-4 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50/80 p-4 text-sm text-emerald-900">
+                  <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
+                  <div>
+                    <p className="font-semibold">Attendance Finalized & Locked</p>
+                    <p className="text-xs text-emerald-700">
+                      Attendance for this subject on {date} has already been saved and locked. Direct modifications are restricted; submit a correction request below if changes are needed.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {subjectAssignmentsQuery.isLoading && <p className="py-6 text-center text-sm text-slate-500">Loading subject assignments…</p>}
               {subjectAssignmentsQuery.isError && <p role="alert" className="py-6 text-sm text-rose-700">Could not load your subject assignments.</p>}
               {subjectAssignmentsQuery.data && !subjectAssignmentsQuery.data.length && <p className="rounded-lg bg-slate-50 p-5 text-center text-sm text-slate-600">No subject/section teaching assignments are available for your account.</p>}
@@ -867,20 +890,20 @@ export const AttendancePage: React.FC = () => {
                       <tbody className="divide-y divide-slate-100">
                         {subjectRosterQuery.data.map((student) => (
                           <tr key={student.id}>
-                            <td className="px-3 py-3">{student.user.firstName} {student.user.lastName}</td>
-                            <td className="px-3 py-3">{student.admissionNumber}</td>
+                            <td className="px-3 py-3 font-medium text-slate-800">{student.user.firstName} {student.user.lastName}</td>
+                            <td className="px-3 py-3 font-mono text-xs text-slate-600">{student.admissionNumber}</td>
                             <td className="px-3 py-3">
                               {student.attendance ? (
                                 <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold">{student.attendance.status} · locked</span>
                               ) : (
-                                <select aria-label={`Period ${periodNumber} attendance for ${student.user.firstName}`} value={subjectDraftStatuses[student.id] ?? 'PRESENT'} onChange={(e) => setSubjectDraftStatuses((drafts) => ({ ...drafts, [student.id]: e.target.value as AttendanceStatus }))} className="rounded-md border border-slate-300 bg-white px-2 py-1.5">{statuses.map((status) => <option key={status}>{status}</option>)}</select>
+                                <select aria-label={`Subject attendance for ${student.user.firstName}`} value={subjectDraftStatuses[student.id] ?? 'PRESENT'} onChange={(e) => setSubjectDraftStatuses((drafts) => ({ ...drafts, [student.id]: e.target.value as AttendanceStatus }))} className="rounded-md border border-slate-300 bg-white px-2 py-1.5">{statuses.map((status) => <option key={status}>{status}</option>)}</select>
                               )}
                             </td>
                             <td className="px-3 py-3">
                               {student.attendance && canCorrect ? (
                                 <div className="flex min-w-64 gap-2">
                                   <select aria-label="Requested subject attendance status" value={subjectCorrectionDrafts[student.id]?.status ?? student.attendance.status} onChange={(e) => setSubjectCorrectionDrafts((drafts) => ({ ...drafts, [student.id]: { ...drafts[student.id], status: e.target.value as AttendanceStatus, reason: drafts[student.id]?.reason ?? '' } }))} className="rounded-md border border-slate-300 px-2 py-1.5">{statuses.map((status) => <option key={status}>{status}</option>)}</select>
-                                  <input aria-label="Subject attendance correction reason" placeholder="Reason" value={subjectCorrectionDrafts[student.id]?.reason ?? ''} onChange={(e) => setSubjectCorrectionDrafts((drafts) => ({ ...drafts, [student.id]: { status: drafts[student.id]?.status ?? student.attendance!.status, reason: e.target.value } }))} className="min-w-24 flex-1 rounded-md border border-slate-300 px-2 py-1.5"/>
+                                  <input aria-label="Subject attendance correction reason" placeholder="Reason (min 5 chars)" value={subjectCorrectionDrafts[student.id]?.reason ?? ''} onChange={(e) => setSubjectCorrectionDrafts((drafts) => ({ ...drafts, [student.id]: { status: drafts[student.id]?.status ?? student.attendance!.status, reason: e.target.value } }))} className="min-w-24 flex-1 rounded-md border border-slate-300 px-2 py-1.5 text-xs"/>
                                   <button disabled={correctionMutation.isPending || (subjectCorrectionDrafts[student.id]?.reason.trim().length ?? 0) < 5} onClick={() => correctionMutation.mutate({ subjectRecordId: student.attendance!.id, status: subjectCorrectionDrafts[student.id]?.status ?? student.attendance!.status, reason: subjectCorrectionDrafts[student.id]?.reason ?? '' })} className="rounded-md bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">Request</button>
                                 </div>
                               ) : student.attendance ? (
@@ -894,8 +917,8 @@ export const AttendancePage: React.FC = () => {
                   </div>
                   {subjectRosterQuery.data.some((student) => !student.attendance) && (
                     <div className="mt-4 flex justify-end">
-                      <button disabled={markSubjectMutation.isPending || periodNumber < 1 || periodNumber > 20} onClick={() => markSubjectMutation.mutate()} className="rounded-lg bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
-                        {markSubjectMutation.isPending ? 'Saving…' : `Save period ${periodNumber}`}
+                      <button disabled={markSubjectMutation.isPending} onClick={() => markSubjectMutation.mutate()} className="rounded-lg bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white shadow hover:bg-primary-700 disabled:opacity-50">
+                        {markSubjectMutation.isPending ? 'Saving…' : 'Save Subject Attendance'}
                       </button>
                     </div>
                   )}
@@ -920,7 +943,7 @@ export const AttendancePage: React.FC = () => {
                       <article key={item.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                           <p className="font-semibold text-slate-800">{target.student.user.firstName} {target.student.user.lastName} <span className="font-normal text-slate-500">· {target.student.admissionNumber}</span></p>
-                          <p className="text-sm text-slate-600">{target.section.classGrade.name} · {target.section.name}{item.subjectAttendanceRecord ? ` · ${item.subjectAttendanceRecord.subject.name}, period ${item.subjectAttendanceRecord.periodNumber}` : ''}: {target.status} → {item.requestedStatus}</p>
+                          <p className="text-sm text-slate-600">{target.section.classGrade.name} · {target.section.name}{item.subjectAttendanceRecord ? ` · ${item.subjectAttendanceRecord.subject.name}` : ''}: {target.status} → {item.requestedStatus}</p>
                           <p className="mt-1 text-sm text-slate-500">{item.reason}</p>
                         </div>
                         <div className="flex gap-2">
@@ -968,7 +991,7 @@ export const AttendancePage: React.FC = () => {
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="mb-4">
               <h2 className="text-lg font-semibold text-slate-900">Subject attendance for {dateLabel}</h2>
-              <p className="text-sm text-slate-500">Subject and period records for your account's assigned or linked students on this single date.</p>
+              <p className="text-sm text-slate-500">Subject records for your account's assigned or linked students on this single date.</p>
             </div>
             {subjectHistoryQuery.isLoading && <p className="py-6 text-center text-sm text-slate-500">Loading subject attendance…</p>}
             {subjectHistoryQuery.isError && <p role="alert" className="py-6 text-sm text-rose-700">Could not load subject attendance.</p>}
@@ -976,8 +999,8 @@ export const AttendancePage: React.FC = () => {
             {!!subjectHistoryQuery.data?.length && (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[600px] text-left text-sm">
-                  <thead><tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500"><th className="px-3 py-3">Student</th><th className="px-3 py-3">Class</th><th className="px-3 py-3">Subject</th><th className="px-3 py-3">Period</th><th className="px-3 py-3">Status</th></tr></thead>
-                  <tbody className="divide-y divide-slate-100">{subjectHistoryQuery.data.map((record) => <tr key={record.id}><td className="px-3 py-3">{record.student.user.firstName} {record.student.user.lastName}</td><td className="px-3 py-3">{record.section.name}</td><td className="px-3 py-3">{record.subject.name}</td><td className="px-3 py-3">{record.periodNumber}</td><td className="px-3 py-3"><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold">{record.status}{record.lockedAt ? ' · locked' : ''}</span></td></tr>)}</tbody>
+                  <thead><tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500"><th className="px-3 py-3">Student</th><th className="px-3 py-3">Class</th><th className="px-3 py-3">Subject</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Submitted</th></tr></thead>
+                  <tbody className="divide-y divide-slate-100">{subjectHistoryQuery.data.map((record) => <tr key={record.id}><td className="px-3 py-3">{record.student.user.firstName} {record.student.user.lastName}</td><td className="px-3 py-3">{record.section.name}</td><td className="px-3 py-3">{record.subject.name}</td><td className="px-3 py-3"><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold">{record.status}{record.lockedAt ? ' · locked' : ''}</span></td><td className="px-3 py-3 text-slate-500">{record.createdAt ? new Date(record.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td></tr>)}</tbody>
                 </table>
               </div>
             )}

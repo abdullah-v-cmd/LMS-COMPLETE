@@ -42,9 +42,10 @@ export const requireTenant = (
 
   req.institutionId = req.user.institutionId;
 
-  // Cross-tenant protection: Check params or body for spoofed institutionId
+  // Cross-tenant protection: Check params, query, body, or header for spoofed institutionId
+  const headerTenantId = req.headers['x-institution-id'] as string;
   const requestedTenantId =
-    req.params.institutionId || req.query.institutionId || req.body?.institutionId;
+    req.params.institutionId || req.query.institutionId || req.body?.institutionId || headerTenantId;
 
   if (requestedTenantId && requestedTenantId !== req.institutionId) {
     return sendError(

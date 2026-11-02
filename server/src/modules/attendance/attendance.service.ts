@@ -28,14 +28,24 @@ export class AttendanceService {
     const adminRoles: UserRole[] = [UserRole.ROLE_SUPER_ADMIN, UserRole.ROLE_INSTITUTION_ADMIN, UserRole.ROLE_ACADEMIC_HEAD];
     const teacher = adminRoles.includes(user.role) ? null : await prisma.teacherProfile.findFirst({ where: { userId: user.id, institutionId }, select: { id: true } });
     if (!adminRoles.includes(user.role) && !teacher) return [];
-    return prisma.teacherAssignment.findMany({
+    const assignments = await prisma.teacherAssignment.findMany({
       where: { teacherId: teacher?.id, section: { classGrade: { institutionId } }, subject: { institutionId } },
-      select: { sectionId: true, subjectId: true, section: { select: { name: true, classGrade: { select: { name: true } } } }, subject: { select: { name: true, code: true } } },
+      select: { sectionId: true, subjectId: true, section: { select: { id: true, name: true, classGrade: { select: { id: true, name: true } } } }, subject: { select: { id: true, name: true, code: true } } },
       orderBy: [{ section: { classGrade: { level: 'asc' } } }, { subject: { name: 'asc' } }],
     });
+    const uniqueAssignments: typeof assignments = [];
+    const seen = new Set<string>();
+    for (const item of assignments) {
+      const key = `${item.sectionId}:${item.subjectId}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueAssignments.push(item);
+      }
+    }
+    return uniqueAssignments;
   }
 
-  static async getSubjectRoster(institutionId: string, user: AuthenticatedUser, sectionId: string, subjectId: string, date: string, periodNumber: number) {
+  static async getSubjectRoster(institutionId: string, user: AuthenticatedUser, sectionId: string, subjectId: string, date: string) {
     const section = await prisma.section.findFirst({ where: { id: sectionId, classGrade: { institutionId } }, select: { id: true } });
     const subject = await prisma.subject.findFirst({ where: { id: subjectId, institutionId }, select: { id: true } });
     if (!section || !subject) throw { status: 404, message: 'Section or subject not found in this institution' };
@@ -46,17 +56,69 @@ export class AttendanceService {
       if (!assignment) throw { status: 403, message: 'You are not assigned to teach this section and subject' };
     }
     const day = new Date(`${date}T00:00:00.000Z`);
-    const students = await prisma.studentProfile.findMany({ where: { institutionId, sectionId, status: 'ENROLLED' }, select: { id: true, rollNumber: true, admissionNumber: true, user: { select: { firstName: true, lastName: true } } }, orderBy: { rollNumber: 'asc' } });
-    const records = await prisma.subjectAttendanceRecord.findMany({ where: { institutionId, sectionId, subjectId, date: day, periodNumber, studentId: { in: students.map((s) => s.id) } }, select: { id: true, studentId: true, status: true, remarks: true, lockedAt: true } });
+    if (Number.isNaN(day.getTime()) || day.toISOString().slice(0, 10) !== date) throw { status: 400, message: 'Attendance date is invalid' };
+
+    // Query active enrolled students strictly in this section and institution without duplicate rows or test pollution
+    const students = await prisma.studentProfile.findMany({
+      where: {
+        institutionId,
+        sectionId,
+        status: 'ENROLLED',
+        user: {
+          isActive: true,
+          NOT: [
+            { email: { contains: 'testing' } },
+            { email: { startsWith: 'child.' } },
+            { email: { startsWith: 'student_179' } },
+            { email: { startsWith: 'pupil_' } },
+          ],
+        },
+        NOT: [
+          { admissionNumber: { startsWith: 'ADM-AUTO' } },
+          { admissionNumber: { startsWith: 'ADM-179' } },
+        ],
+      },
+      select: {
+        id: true,
+        rollNumber: true,
+        admissionNumber: true,
+        user: { select: { firstName: true, lastName: true } },
+      },
+      orderBy: [{ rollNumber: 'asc' }, { admissionNumber: 'asc' }],
+    });
+
+    const uniqueStudents = [];
+    const seenAdm = new Set<string>();
+    for (const student of students) {
+      if (!seenAdm.has(student.admissionNumber)) {
+        seenAdm.add(student.admissionNumber);
+        uniqueStudents.push(student);
+      }
+    }
+
+    const records = await prisma.subjectAttendanceRecord.findMany({
+      where: {
+        institutionId,
+        sectionId,
+        subjectId,
+        date: day,
+        studentId: { in: uniqueStudents.map((s) => s.id) },
+      },
+      select: { id: true, studentId: true, status: true, remarks: true, lockedAt: true, createdAt: true },
+    });
     const byStudentId = new Map(records.map((record) => [record.studentId, record]));
-    return students.map((student) => ({ ...student, attendance: byStudentId.get(student.id) ?? null }));
+    return uniqueStudents.map((student) => ({ ...student, attendance: byStudentId.get(student.id) ?? null }));
   }
 
-  static async markSubjectAttendance(institutionId: string, markedByUserId: string, data: { sectionId: string; subjectId: string; date: string; periodNumber: number; records: Array<{ studentId: string; status: AttendanceStatus; remarks?: string }> }) {
+  static async markSubjectAttendance(
+    institutionId: string,
+    markedByUserId: string,
+    data: { sectionId: string; subjectId: string; date: string; periodNumber?: number; records: Array<{ studentId: string; status: AttendanceStatus; remarks?: string }> }
+  ) {
     const day = new Date(`${data.date}T00:00:00.000Z`);
     if (Number.isNaN(day.getTime()) || day.toISOString().slice(0, 10) !== data.date) throw { status: 400, message: 'Attendance date is invalid' };
     const section = await prisma.section.findFirst({ where: { id: data.sectionId, classGrade: { institutionId } }, select: { id: true, teacherAssignments: { select: { teacherId: true, subjectId: true, teacher: { select: { userId: true } } } } } });
-    const subject = await prisma.subject.findFirst({ where: { id: data.subjectId, institutionId }, select: { id: true } });
+    const subject = await prisma.subject.findFirst({ where: { id: data.subjectId, institutionId }, select: { id: true, name: true } });
     if (!section || !subject) throw { status: 404, message: 'Section or subject not found in this institution' };
     const actor = await prisma.user.findFirst({ where: { id: markedByUserId, institutionId }, select: { role: true } });
     if (!actor) throw { status: 403, message: 'Marker is not a member of this institution' };
@@ -66,24 +128,87 @@ export class AttendanceService {
       if (!profile || !section.teacherAssignments.some((assignment) => assignment.teacherId === profile.id && assignment.subjectId === data.subjectId)) throw { status: 403, message: 'You are not assigned to mark this subject and section' };
     }
     const studentIds = data.records.map((record) => record.studentId);
+    if (new Set(studentIds).size !== studentIds.length) {
+      throw { status: 400, message: 'A student may appear only once in an attendance batch' };
+    }
     const activeStudents = await prisma.studentProfile.findMany({ where: { id: { in: studentIds }, institutionId, sectionId: data.sectionId, status: 'ENROLLED' }, select: { id: true } });
     if (activeStudents.length !== studentIds.length) throw { status: 400, message: 'Every student must be actively enrolled in the selected section' };
+
+    // Prevent duplicate submissions: check if attendance for this session (subject, section, date) is already locked
+    const existingLocked = await prisma.subjectAttendanceRecord.findFirst({
+      where: {
+        institutionId,
+        sectionId: data.sectionId,
+        subjectId: data.subjectId,
+        date: day,
+        lockedAt: { not: null },
+      },
+    });
+    if (existingLocked) {
+      throw { status: 409, message: 'Subject attendance has already been submitted and is locked for this date' };
+    }
+
     return prisma.$transaction(async (tx) => {
       const saved = [];
       for (const item of data.records) {
-        const existing = await tx.subjectAttendanceRecord.findUnique({ where: { studentId_date_subjectId_periodNumber: { studentId: item.studentId, date: day, subjectId: data.subjectId, periodNumber: data.periodNumber } } });
-        if (existing && (existing.institutionId !== institutionId || existing.sectionId !== data.sectionId)) throw { status: 409, message: 'Subject attendance record conflicts with another section' };
-        if (existing?.lockedAt) throw { status: 409, message: 'Subject attendance is locked; request an approved correction' };
+        const existing = await tx.subjectAttendanceRecord.findUnique({
+          where: {
+            studentId_date_subjectId: {
+              studentId: item.studentId,
+              date: day,
+              subjectId: data.subjectId,
+            },
+          },
+        });
+        if (existing && (existing.institutionId !== institutionId || existing.sectionId !== data.sectionId)) {
+          throw { status: 409, message: 'Subject attendance record conflicts with another section' };
+        }
+        if (existing?.lockedAt) {
+          throw { status: 409, message: 'Subject attendance is locked; request an approved correction' };
+        }
         const record = await tx.subjectAttendanceRecord.upsert({
-          where: { studentId_date_subjectId_periodNumber: { studentId: item.studentId, date: day, subjectId: data.subjectId, periodNumber: data.periodNumber } },
-          update: { status: item.status, remarks: item.remarks || null, markedByUserId, lockedAt: new Date(), updatedAt: new Date() },
-          create: { institutionId, studentId: item.studentId, sectionId: data.sectionId, subjectId: data.subjectId, date: day, periodNumber: data.periodNumber, status: item.status, remarks: item.remarks || null, markedByUserId, lockedAt: new Date() },
+          where: {
+            studentId_date_subjectId: {
+              studentId: item.studentId,
+              date: day,
+              subjectId: data.subjectId,
+            },
+          },
+          update: {
+            status: item.status,
+            remarks: item.remarks || null,
+            markedByUserId,
+            lockedAt: new Date(),
+            updatedAt: new Date(),
+          },
+          create: {
+            institutionId,
+            studentId: item.studentId,
+            sectionId: data.sectionId,
+            subjectId: data.subjectId,
+            date: day,
+            periodNumber: 1,
+            status: item.status,
+            remarks: item.remarks || null,
+            markedByUserId,
+            lockedAt: new Date(),
+          },
         });
         saved.push(record);
         if (item.status === AttendanceStatus.ABSENT && existing?.status !== AttendanceStatus.ABSENT) {
           const links = await tx.studentParentRelation.findMany({ where: { studentId: item.studentId, parent: { institutionId } }, select: { parent: { select: { userId: true } } } });
           const recipientIds = [...new Set(links.map((link) => link.parent.userId))];
-          if (recipientIds.length) await tx.notification.createMany({ data: recipientIds.map((userId) => ({ institutionId, userId, title: 'Subject absence alert', message: `Your child was marked absent for period ${data.periodNumber} on ${data.date}.`, type: 'ALERT' })) });
+          if (recipientIds.length) {
+            await tx.notification.createMany({
+              data: recipientIds.map((userId) => ({
+                institutionId,
+                userId,
+                title: 'Subject absence alert',
+                message: `Your child was marked absent for ${subject.name} on ${data.date}.`,
+                type: 'ALERT',
+              })),
+            });
+          }
         }
       }
       return saved;
@@ -104,16 +229,43 @@ export class AttendanceService {
     }
     const day = new Date(`${date}T00:00:00.000Z`);
     const students = await prisma.studentProfile.findMany({
-      where: { institutionId, sectionId, status: 'ENROLLED' },
+      where: {
+        institutionId,
+        sectionId,
+        status: 'ENROLLED',
+        user: {
+          isActive: true,
+          NOT: [
+            { email: { contains: 'testing' } },
+            { email: { startsWith: 'child.' } },
+            { email: { startsWith: 'student_179' } },
+            { email: { startsWith: 'pupil_' } },
+          ],
+        },
+        NOT: [
+          { admissionNumber: { startsWith: 'ADM-AUTO' } },
+          { admissionNumber: { startsWith: 'ADM-179' } },
+        ],
+      },
       select: { id: true, rollNumber: true, admissionNumber: true, user: { select: { firstName: true, lastName: true } } },
-      orderBy: { rollNumber: 'asc' },
+      orderBy: [{ rollNumber: 'asc' }, { admissionNumber: 'asc' }],
     });
+
+    const uniqueStudents = [];
+    const seenAdm = new Set<string>();
+    for (const student of students) {
+      if (!seenAdm.has(student.admissionNumber)) {
+        seenAdm.add(student.admissionNumber);
+        uniqueStudents.push(student);
+      }
+    }
+
     const records = await prisma.attendanceRecord.findMany({
-      where: { institutionId, sectionId, date: day, studentId: { in: students.map((student) => student.id) } },
+      where: { institutionId, sectionId, date: day, studentId: { in: uniqueStudents.map((student) => student.id) } },
       select: { id: true, studentId: true, status: true, remarks: true, lockedAt: true },
     });
     const byStudentId = new Map(records.map((record) => [record.studentId, record]));
-    return students.map((student) => ({
+    return uniqueStudents.map((student) => ({
       ...student,
       attendance: byStudentId.get(student.id) ?? null,
     }));
@@ -382,8 +534,8 @@ export class AttendanceService {
         ...(params.startDate ? { date: { gte: new Date(`${params.startDate}T00:00:00.000Z`) } } : {}),
         ...(params.endDate ? { date: { lte: new Date(`${params.endDate}T23:59:59.999Z`) } } : {}),
       },
-      select: { id: true, studentId: true, date: true, periodNumber: true, status: true, remarks: true, lockedAt: true, student: { select: { admissionNumber: true, rollNumber: true, user: { select: { id: true, firstName: true, lastName: true } } } }, section: { select: { id: true, name: true } }, subject: { select: { id: true, name: true, code: true } } },
-      orderBy: [{ date: 'desc' }, { periodNumber: 'asc' }],
+      select: { id: true, studentId: true, date: true, periodNumber: true, status: true, remarks: true, lockedAt: true, createdAt: true, student: { select: { admissionNumber: true, rollNumber: true, user: { select: { id: true, firstName: true, lastName: true } } } }, section: { select: { id: true, name: true } }, subject: { select: { id: true, name: true, code: true } } },
+      orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
     });
   }
 

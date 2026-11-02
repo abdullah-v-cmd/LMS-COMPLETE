@@ -44,6 +44,9 @@ describe('Phase 2: Academic Management & SIS Tests', () => {
   });
 
   afterAll(async () => {
+    await prisma.user.deleteMany({
+      where: { email: { startsWith: 'student_17' } },
+    });
     await prisma.$disconnect();
   });
 

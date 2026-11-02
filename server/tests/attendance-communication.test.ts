@@ -208,11 +208,11 @@ describe('Phase 4: Attendance & Communication Workflow Tests', () => {
     expect(res.body.data.title).toContain('Parent-Teacher Conference');
   });
 
-  it('marks, retrieves, and approves a correction for subject-period attendance', async () => {
+  it('marks, retrieves, and approves a correction for subject attendance without period', async () => {
     const date = '2026-10-24';
     const marked = await request(app).post('/api/v1/attendance/subjects/mark')
       .set('Authorization', `Bearer ${homeroomTeacherToken}`)
-      .send({ sectionId, subjectId: mathSubjectId, date, periodNumber: 3, records: [{ studentId: studentAliceId, status: 'PRESENT' }] });
+      .send({ sectionId, subjectId: mathSubjectId, date, records: [{ studentId: studentAliceId, status: 'PRESENT' }] });
     expect(marked.status).toBe(201);
     const subjectRecordId = marked.body.data[0].id;
     const persisted = await prisma.subjectAttendanceRecord.findUnique({ where: { id: subjectRecordId } });
@@ -221,11 +221,11 @@ describe('Phase 4: Attendance & Communication Workflow Tests', () => {
     const parentView = await request(app).get(`/api/v1/attendance/subjects?studentId=${studentAliceId}&startDate=${date}&endDate=${date}`)
       .set('Authorization', `Bearer ${parentToken}`);
     expect(parentView.status).toBe(200);
-    expect(parentView.body.data.some((row: any) => row.id === subjectRecordId && row.periodNumber === 3)).toBe(true);
+    expect(parentView.body.data.some((row: any) => row.id === subjectRecordId)).toBe(true);
 
     const correction = await request(app).post('/api/v1/attendance/corrections')
       .set('Authorization', `Bearer ${homeroomTeacherToken}`)
-      .send({ subjectAttendanceRecordId: subjectRecordId, requestedStatus: 'LATE', reason: 'Student arrived after the period began' });
+      .send({ subjectAttendanceRecordId: subjectRecordId, requestedStatus: 'LATE', reason: 'Student arrived after the subject began' });
     expect(correction.status).toBe(201);
 
     const duplicate = await request(app).post('/api/v1/attendance/corrections')

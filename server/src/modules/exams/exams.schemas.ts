@@ -69,5 +69,9 @@ export const gradingScaleSchema = z.object({
   if (new Set(bands.map((band) => band.minimumPercentage)).size !== bands.length) ctx.addIssue({ code: 'custom', path: ['bands'], message: 'Minimum percentages must be unique' });
   if (new Set(bands.map((band) => band.gradeLetter.toUpperCase())).size !== bands.length) ctx.addIssue({ code: 'custom', path: ['bands'], message: 'Grade letters must be unique' });
 });
-export const reportCardsQuerySchema = z.object({ studentId: z.string().uuid().optional() });
+export const reportCardsQuerySchema = z.object({
+  studentId: z.string().uuid().optional(),
+  examSessionId: z.string().uuid().optional(),
+  sectionId: z.string().uuid().optional(),
+});
 export const reportCardVerificationQuerySchema = z.object({ signature: z.string().regex(/^[a-f0-9]{64}$/i) });

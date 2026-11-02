@@ -28,11 +28,11 @@ describe('Attendance request validation', () => {
     expect(absenceJustificationSchema.safeParse({ attendanceRecordId: 'a0184c98-7f09-4b16-a22c-95b8dbf2a010', reason: 'Child was ill' }).success).toBe(true);
   });
 
-  it('validates subject period bounds and duplicate students', () => {
+  it('validates subject attendance without period and rejects duplicate students', () => {
     const id = 'a0184c98-7f09-4b16-a22c-95b8dbf2a010';
-    expect(subjectRosterQuerySchema.safeParse({ date: '2026-10-24', subjectId: id, periodNumber: '0' }).success).toBe(false);
-    expect(markSubjectAttendanceSchema.safeParse({ sectionId: id, subjectId: id, date: '2026-10-24', periodNumber: 2, records: [{ studentId: id, status: 'PRESENT' }, { studentId: id, status: 'ABSENT' }] }).success).toBe(false);
-    expect(markSubjectAttendanceSchema.safeParse({ sectionId: id, subjectId: id, date: '2026-10-24', periodNumber: 2, records: [{ studentId: id, status: 'PRESENT' }] }).success).toBe(true);
+    expect(subjectRosterQuerySchema.safeParse({ date: '2026-10-24', subjectId: id }).success).toBe(true);
+    expect(markSubjectAttendanceSchema.safeParse({ sectionId: id, subjectId: id, date: '2026-10-24', records: [{ studentId: id, status: 'PRESENT' }, { studentId: id, status: 'ABSENT' }] }).success).toBe(false);
+    expect(markSubjectAttendanceSchema.safeParse({ sectionId: id, subjectId: id, date: '2026-10-24', records: [{ studentId: id, status: 'PRESENT' }] }).success).toBe(true);
   });
 
   it('validates attendance summary date order and monitoring thresholds', () => {

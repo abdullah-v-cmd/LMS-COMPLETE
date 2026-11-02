@@ -10,6 +10,7 @@ import {
   createModuleSchema,
   createLessonSchema,
   createAssignmentSchema,
+  updateAssignmentSchema,
   submitAssignmentSchema,
   gradeSubmissionSchema,
 } from './lms.schemas';
@@ -56,6 +57,22 @@ router.post(
   validateRequest({ body: createAssignmentSchema }),
   logAuditEvent('ASSIGNMENT_CREATED', 'Assignment'),
   LmsController.createAssignment
+);
+
+router.patch(
+  '/assignments/:id',
+  requirePermission(PERMISSIONS.ASSIGNMENT_CREATE),
+  validateRequest({ body: updateAssignmentSchema }),
+  logAuditEvent('ASSIGNMENT_UPDATED', 'Assignment'),
+  LmsController.updateAssignment
+);
+
+router.put(
+  '/assignments/:id',
+  requirePermission(PERMISSIONS.ASSIGNMENT_CREATE),
+  validateRequest({ body: updateAssignmentSchema }),
+  logAuditEvent('ASSIGNMENT_UPDATED', 'Assignment'),
+  LmsController.updateAssignment
 );
 
 router.get(

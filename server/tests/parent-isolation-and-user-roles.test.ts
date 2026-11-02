@@ -67,6 +67,20 @@ describe('Automatic Parent Account Creation, Strict Student Isolation & User Rol
   });
 
   afterAll(async () => {
+    const studentIds = [student1Id, student2Id, student3Id].filter(Boolean);
+    if (studentIds.length) {
+      await prisma.studentProfile.deleteMany({ where: { id: { in: studentIds } } });
+    }
+    await prisma.user.deleteMany({
+      where: {
+        OR: [
+          { email: { in: [parentUserEmail1, parentUserEmail2] } },
+          { email: { contains: 'child.one' } },
+          { email: { contains: 'child.two' } },
+          { email: { contains: 'child.three' } },
+        ],
+      },
+    });
     await prisma.$disconnect();
   });
 

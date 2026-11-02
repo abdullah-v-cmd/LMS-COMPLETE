@@ -46,3 +46,16 @@ export const gradeSubmissionSchema = z.object({
   grade: z.number().min(0),
   feedback: z.string().optional(),
 });
+
+export const updateAssignmentSchema = z.object({
+  title: z.string().min(2).optional(),
+  instructions: z.string().min(5).optional(),
+  criteria: z.string().optional(),
+  weightagePercent: z.number().min(0).max(100).optional(),
+  maxPoints: z.number().positive().optional(),
+  dueDate: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}/)).optional(),
+  allowLateSubmissions: z.boolean().optional(),
+  latePenaltyPercent: z.number().min(0).max(100).optional(),
+  reason: z.string().optional(),
+});
+

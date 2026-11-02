@@ -1,6 +1,8 @@
 import { prisma } from '../../utils/prisma';
-import { UserRole } from '@prisma/client';
+import { SubjectResultStatus, SubmissionStatus, UserRole } from '@prisma/client';
 import { AuthenticatedUser } from '../../types';
+import { AssessmentService } from '../assessment/assessment.service';
+
 
 const SAFE_USER_SELECT = {
   id: true,
@@ -274,7 +276,7 @@ export class LmsService {
     });
   }
 
-  static async createAssignment(institutionId: string, data: any) {
+  static async createAssignment(institutionId: string, data: any, user?: AuthenticatedUser) {
     const course = await prisma.course.findFirst({
       where: { id: data.courseId, institutionId },
     });
@@ -294,17 +296,241 @@ export class LmsService {
       finalInstructions = `${metadataTags.join(' ')}\n\n${finalInstructions}`;
     }
 
+    // Automatically create or link authoritative AssessmentItem in AssessmentScheme
+    let assessmentItemId: string | null = null;
+    if (course.academicTermId && course.subjectId && course.sectionId) {
+      let scheme = await prisma.assessmentScheme.findFirst({
+        where: {
+          institutionId,
+          subjectId: course.subjectId,
+          academicTermId: course.academicTermId,
+          sectionId: course.sectionId,
+        },
+        include: { categories: true },
+      });
+
+      if (!scheme) {
+        let creatorId = user?.id;
+        if (!creatorId && course.teacherId) {
+          const tp = await prisma.teacherProfile.findUnique({ where: { id: course.teacherId } });
+          creatorId = tp?.userId;
+        }
+        if (!creatorId) {
+          const adminUser = await prisma.user.findFirst({ where: { institutionId } });
+          creatorId = adminUser?.id || 'system';
+        }
+
+        scheme = await prisma.assessmentScheme.create({
+          data: {
+            institutionId,
+            academicTermId: course.academicTermId,
+            subjectId: course.subjectId,
+            sectionId: course.sectionId,
+            title: `${course.title} Assessment Scheme`,
+            status: 'DRAFT',
+            createdById: creatorId,
+            categories: {
+              create: [
+                {
+                  name: data.title,
+                  weightagePercentage: data.weightagePercent ?? 15,
+                  description: `Component for ${data.title}`,
+                  displayOrder: 0,
+                },
+              ],
+            },
+          },
+          include: { categories: true },
+        });
+      }
+
+      // Find or create appropriate category
+      let category = scheme.categories.find(
+        (c) => c.name.toLowerCase() === data.title.toLowerCase() || c.name.toLowerCase() === 'assignments'
+      );
+
+      if (!category) {
+        category = await prisma.assessmentCategory.create({
+          data: {
+            assessmentSchemeId: scheme.id,
+            name: data.title,
+            weightagePercentage: data.weightagePercent ?? 15,
+            description: `Assessment component for ${data.title}`,
+            displayOrder: scheme.categories.length,
+          },
+        });
+      }
+
+      const item = await prisma.assessmentItem.create({
+        data: {
+          assessmentCategoryId: category.id,
+          title: data.title,
+          instructions: finalInstructions,
+          maxMarks: data.maxPoints,
+          weightagePercentage: data.weightagePercent ?? category.weightagePercentage,
+          dueDate: new Date(data.dueDate),
+          isPublished: true,
+        },
+      });
+      assessmentItemId = item.id;
+    }
+
     return prisma.assignment.create({
       data: {
         courseId: data.courseId,
         title: data.title,
         instructions: finalInstructions,
         maxPoints: data.maxPoints,
+        weightagePercent: data.weightagePercent ?? null,
+        assessmentItemId,
         dueDate: new Date(data.dueDate),
         allowLateSubmissions: data.allowLateSubmissions ?? true,
         latePenaltyPercent: data.latePenaltyPercent ?? 0,
       },
+      include: {
+        assessmentItem: true,
+      },
     });
+  }
+
+  static async updateAssignment(
+    assignmentId: string,
+    institutionId: string,
+    user: AuthenticatedUser,
+    data: any
+  ) {
+    const assignment = await prisma.assignment.findFirst({
+      where: { id: assignmentId, course: { institutionId } },
+      include: {
+        course: true,
+        assessmentItem: {
+          include: { category: true },
+        },
+      },
+    });
+
+    if (!assignment) {
+      throw { status: 404, message: 'Assignment not found in this institution' };
+    }
+
+    const course = assignment.course;
+
+    // Check teacher editing lock: if subject result is submitted to Exam Dept, block direct edits!
+    if (course.academicTermId && course.subjectId && course.sectionId) {
+      const activeLockedResults = await prisma.subjectResult.findFirst({
+        where: {
+          subjectId: course.subjectId,
+          sectionId: course.sectionId,
+          academicTermId: course.academicTermId,
+          status: {
+            in: [
+              SubjectResultStatus.SUBMITTED_TO_EXAM_DEPARTMENT,
+              SubjectResultStatus.UNDER_EXAM_REVIEW,
+              SubjectResultStatus.APPROVED,
+              SubjectResultStatus.OFFICIALLY_PUBLISHED,
+            ],
+          },
+        },
+      });
+
+      if (activeLockedResults) {
+        throw {
+          status: 403,
+          message:
+            'Direct assignment modifications are locked because subject results have been submitted to the Examination Department. Please submit a formal correction request.',
+        };
+      }
+    }
+
+    // If dueDate changed: record in AssessmentDeadlineHistory (even after original dueDate has passed)
+    if (data.dueDate && assignment.assessmentItemId) {
+      const newDueDate = new Date(data.dueDate);
+      await prisma.assessmentDeadlineHistory.create({
+        data: {
+          assessmentItemId: assignment.assessmentItemId,
+          previousDueDate: assignment.dueDate,
+          newDueDate,
+          reason: data.reason || 'Assignment deadline updated by teacher',
+          changedByUserId: user.id,
+        },
+      });
+
+      await prisma.assessmentItem.update({
+        where: { id: assignment.assessmentItemId },
+        data: {
+          dueDate: newDueDate,
+          title: data.title ?? undefined,
+          maxMarks: data.maxPoints ?? undefined,
+          weightagePercentage: data.weightagePercent ?? undefined,
+        },
+      });
+    }
+
+    let finalInstructions = data.instructions;
+    if (data.instructions && (data.weightagePercent !== undefined || data.criteria)) {
+      const metadataTags: string[] = [];
+      if (data.weightagePercent !== undefined && data.weightagePercent !== null) {
+        metadataTags.push(`[Weightage: ${data.weightagePercent}%]`);
+      }
+      if (data.criteria && data.criteria.trim()) {
+        metadataTags.push(`[Criteria: ${data.criteria.trim()}]`);
+      }
+      if (metadataTags.length > 0) {
+        finalInstructions = `${metadataTags.join(' ')}\n\n${data.instructions}`;
+      }
+    }
+
+    const updated = await prisma.assignment.update({
+      where: { id: assignmentId },
+      data: {
+        title: data.title ?? undefined,
+        instructions: finalInstructions ?? undefined,
+        maxPoints: data.maxPoints ?? undefined,
+        weightagePercent: data.weightagePercent ?? undefined,
+        dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
+        allowLateSubmissions: data.allowLateSubmissions !== undefined ? data.allowLateSubmissions : undefined,
+        latePenaltyPercent: data.latePenaltyPercent !== undefined ? data.latePenaltyPercent : undefined,
+      },
+      include: {
+        assessmentItem: { include: { deadlineHistories: true } },
+        submissions: true,
+      },
+    });
+
+    // If maxPoints or weightage changed, recalculate affected students
+    if (
+      (data.maxPoints !== undefined || data.weightagePercent !== undefined) &&
+      assignment.assessmentItemId &&
+      course.academicTermId &&
+      course.subjectId &&
+      course.sectionId
+    ) {
+      const scheme = await prisma.assessmentScheme.findFirst({
+        where: {
+          subjectId: course.subjectId,
+          sectionId: course.sectionId,
+          academicTermId: course.academicTermId,
+        },
+      });
+      if (scheme) {
+        const students = await prisma.studentProfile.findMany({
+          where: { sectionId: course.sectionId, institutionId },
+          select: { id: true },
+        });
+        for (const s of students) {
+          await AssessmentService.recalculateStudentSubjectResult(
+            institutionId,
+            s.id,
+            course.subjectId,
+            course.sectionId,
+            course.academicTermId,
+            scheme.id
+          );
+        }
+      }
+    }
+
+    return updated;
   }
 
   static async getSubmissions(assignmentId: string, institutionId: string) {
@@ -357,7 +583,7 @@ export class LmsService {
       throw { status: 400, message: 'Late submissions are not accepted for this assignment' };
     }
 
-    return prisma.assignmentSubmission.upsert({
+    const submission = await prisma.assignmentSubmission.upsert({
       where: {
         assignmentId_studentId: {
           assignmentId,
@@ -378,18 +604,98 @@ export class LmsService {
         status: isLate ? 'LATE' : 'SUBMITTED',
       },
     });
+
+    // Synchronize to AssessmentSubmissionRecord if linked to AssessmentItem
+    if (assignment.assessmentItemId) {
+      await prisma.assessmentSubmissionRecord.upsert({
+        where: {
+          assessmentItemId_studentId: {
+            assessmentItemId: assignment.assessmentItemId,
+            studentId: studentProfile.id,
+          },
+        },
+        update: {
+          submittedAt: new Date(),
+          contentText: data.contentText,
+          attachmentUrl: data.attachmentUrl,
+          status: isLate ? SubmissionStatus.LATE : SubmissionStatus.RESUBMITTED,
+        },
+        create: {
+          assessmentItemId: assignment.assessmentItemId,
+          studentId: studentProfile.id,
+          submittedAt: new Date(),
+          contentText: data.contentText,
+          attachmentUrl: data.attachmentUrl,
+          status: isLate ? SubmissionStatus.LATE : SubmissionStatus.SUBMITTED,
+        },
+      });
+    }
+
+    return submission;
   }
 
   static async gradeSubmission(submissionId: string, graderUserId: string, data: any, institutionId: string) {
     const submission = await prisma.assignmentSubmission.findFirst({
       where: { id: submissionId, assignment: { course: { institutionId } } },
+      include: {
+        assignment: {
+          include: {
+            course: true,
+            assessmentItem: {
+              include: {
+                category: { include: { assessmentScheme: true } },
+              },
+            },
+          },
+        },
+        student: true,
+      },
     });
 
     if (!submission) {
       throw { status: 404, message: 'Submission not found in this institution' };
     }
 
-    return prisma.assignmentSubmission.update({
+    // Verify marks obtained <= assignment maxPoints
+    if (data.grade > submission.assignment.maxPoints) {
+      throw {
+        status: 400,
+        message: `Grade (${data.grade}) cannot exceed assignment maximum marks (${submission.assignment.maxPoints})`,
+      };
+    }
+
+    // Check teacher editing lock: if subject result is submitted to Exam Dept, block direct edits!
+    const course = submission.assignment.course;
+    if (course.academicTermId && course.subjectId && course.sectionId) {
+      const existingResult = await prisma.subjectResult.findUnique({
+        where: {
+          subjectId_sectionId_studentId_academicTermId: {
+            subjectId: course.subjectId,
+            sectionId: course.sectionId,
+            studentId: submission.studentId,
+            academicTermId: course.academicTermId,
+          },
+        },
+      });
+
+      if (
+        existingResult &&
+        ([
+          SubjectResultStatus.SUBMITTED_TO_EXAM_DEPARTMENT,
+          SubjectResultStatus.UNDER_EXAM_REVIEW,
+          SubjectResultStatus.APPROVED,
+          SubjectResultStatus.OFFICIALLY_PUBLISHED,
+        ] as SubjectResultStatus[]).includes(existingResult.status)
+      ) {
+        throw {
+          status: 403,
+          message:
+            'Direct marks edits are locked because this subject result has been submitted to the Examination Department. Please submit a formal marks correction request.',
+        };
+      }
+    }
+
+    const updated = await prisma.assignmentSubmission.update({
       where: { id: submissionId },
       data: {
         grade: data.grade,
@@ -403,6 +709,80 @@ export class LmsService {
         assignment: true,
       },
     });
+
+    // Synchronize to authoritative assessment mark and recalculate!
+    if (submission.assignment.assessmentItemId && course.academicTermId && course.subjectId && course.sectionId) {
+      const assessmentItemId = submission.assignment.assessmentItemId;
+      const schemeId = submission.assignment.assessmentItem?.category.assessmentSchemeId;
+
+      await prisma.$transaction(async (tx) => {
+        await tx.studentAssessmentMark.upsert({
+          where: {
+            assessmentItemId_studentId: {
+              assessmentItemId,
+              studentId: submission.studentId,
+            },
+          },
+          update: {
+            marksObtained: data.grade,
+            isAbsent: false,
+            isExcused: false,
+            remarks: data.feedback,
+            enteredByUserId: graderUserId,
+            status: 'PUBLISHED',
+          },
+          create: {
+            assessmentItemId,
+            studentId: submission.studentId,
+            marksObtained: data.grade,
+            isAbsent: false,
+            isExcused: false,
+            remarks: data.feedback,
+            enteredByUserId: graderUserId,
+            status: 'PUBLISHED',
+          },
+        });
+
+        await tx.assessmentSubmissionRecord.upsert({
+          where: {
+            assessmentItemId_studentId: {
+              assessmentItemId,
+              studentId: submission.studentId,
+            },
+          },
+          update: {
+            grade: data.grade,
+            feedback: data.feedback,
+            gradedByUserId: graderUserId,
+            gradedAt: new Date(),
+            status: SubmissionStatus.GRADED,
+          },
+          create: {
+            assessmentItemId,
+            studentId: submission.studentId,
+            grade: data.grade,
+            feedback: data.feedback,
+            gradedByUserId: graderUserId,
+            gradedAt: new Date(),
+            status: SubmissionStatus.GRADED,
+          },
+        });
+      });
+
+      // Recalculate student's subject result immediately!
+      if (schemeId) {
+        await AssessmentService.recalculateStudentSubjectResult(
+          institutionId,
+          submission.studentId,
+          course.subjectId,
+          course.sectionId,
+          course.academicTermId,
+          schemeId
+        );
+      }
+    }
+
+    return updated;
   }
 
   static async getSubmissionAttachment(submissionId: string, user?: AuthenticatedUser) {

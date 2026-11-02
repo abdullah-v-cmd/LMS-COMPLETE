@@ -15,6 +15,7 @@ import attendanceRoutes from './modules/attendance/attendance.routes';
 import communicationRoutes from './modules/communication/communication.routes';
 import leaveRoutes from './modules/hr/leave.routes';
 import examsRoutes from './modules/exams/exams.routes';
+import assessmentRoutes from './modules/assessment/assessment.routes';
 import financeRoutes from './modules/finance/finance.routes';
 import libraryRoutes from './modules/library/library.routes';
 import transportRoutes from './modules/transport/transport.routes';
@@ -91,6 +92,7 @@ export const createApp = () => {
   app.use(`${env.API_PREFIX}/communication`, communicationRoutes);
   app.use(`${env.API_PREFIX}/hr`, leaveRoutes);
   app.use(`${env.API_PREFIX}/exams`, examsRoutes);
+  app.use(`${env.API_PREFIX}/assessments`, assessmentRoutes);
   app.use(`${env.API_PREFIX}/finance`, financeRoutes);
   app.use(`${env.API_PREFIX}/library`, libraryRoutes);
   app.use(`${env.API_PREFIX}/transport`, transportRoutes);

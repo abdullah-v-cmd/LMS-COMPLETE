@@ -156,7 +156,8 @@ The relational schema leverages PostgreSQL 16 with Prisma ORM. Key entity domain
 
 8. **Auxiliary & Operations**:
    - `BookCatalog`, `BookCopy`, `BookBorrowRecord`: Library inventory and circulation tracking.
-   - `TransportRoute`, `TransportVehicle`, `StudentTransportAllocation`: Logistics and stops.
+   - `TransportRoute`, `
+   TransportVehicle`, `StudentTransportAllocation`: Logistics and stops.
    - `HostelBlock`, `HostelRoom`, `HostelBedAllocation`: Housing and occupancy.
    - `CounselingCase`, `CounselingNote`: Encrypted/restricted welfare files.
    - `Announcement`, `Notification`, `DirectMessage`: Communication center.
@@ -345,3 +346,90 @@ Migration `20261025000100_transport_operations` adds route stops, vehicle docume
 ### Transport attendance and finance invoices (pending verification)
 
 Migration `20261025000300_transport_attendance_billing` stores attendance per allocation and service date, with a unique constraint preventing duplicates. The audited coordinator endpoint corrects status and remarks through an upsert. Monthly billing derives every amount from `TransportRoute.monthlyFee`, creates one linked standard `StudentFeeInvoice`, and posts balanced receivable and transport-revenue ledger rows. Existing finance payment, waiver, refund, and read restrictions apply to the invoice. Student and parent reads are scoped to owned or linked students. Database and browser verification remain pending.
+
+---
+
+## 7. Academic Assessment, Unified Gradebook & Examination Lifecycle
+
+### Architectural Core Principles
+The LMS and Assessment systems operate as a single authoritative grading architecture:
+- **1:1 Model Synchronization**: The LMS `Assignment` and `AssessmentItem` models are bound via a 1:1 foreign key relation (`Assignment.assessmentItemId` -> `AssessmentItem.id` via `LmsAssignmentAssessmentItem`).
+- **Unified Persistence**: Marks entered either in LMS Assignment grading (`/api/v1/lms/submissions/:id/grade`) or in the Assessment Gradebook (`/api/v1/assessments/gradebook/save`) atomically update `AssignmentSubmission`, `AssessmentSubmissionRecord`, and `StudentAssessmentMark`.
+- **Zero Redundancy**: No duplicate calculation engines, isolated gradebooks, or disconnected grade stores exist.
+
+```
++-----------------------------------------------------------------------------------------+
+|                                    LMS COURSE LAYER                                     |
+|  - Course Assignment created by Teacher with Max Points, Weightage %, and Due Date      |
++--------------------------------------------+--------------------------------------------+
+                                             | 1:1 Relation (assessmentItemId)
+                                             v
++-----------------------------------------------------------------------------------------+
+|                              AUTHORITATIVE ASSESSMENT LAYER                             |
+|  - AssessmentScheme (Subject + Section + Academic Year + Term)                          |
+|  - AssessmentCategory (e.g., Continuous Assessment 30%, Midterm 30%, Final 40%)         |
+|  - AssessmentItem (Linked to LMS Assignment or Manual Entry like Participation)          |
+|  - StudentAssessmentMark & AssessmentSubmissionRecord (Authoritative Marks Store)        |
++--------------------------------------------+--------------------------------------------+
+                                             | Trigger on Grade / Mark Update
+                                             v
++-----------------------------------------------------------------------------------------+
+|                             MATHEMATICAL CALCULATION ENGINE                             |
+|  Weighted Contribution = (Obtained Marks / Max Marks) * Component Weightage             |
+|  StudentSubjectResult (Total Weighted Score, Letter Grade, GPA, Passing Status)         |
++--------------------------------------------+--------------------------------------------+
+                                             | Two-Button Submission Process
+                                             v
++-----------------------------------------------------------------------------------------+
+|                                 EXAMINATION LIFECYCLE                                   |
+|  Button A: Submit/Publish to Students (Status: PUBLISHED_TO_STUDENTS, Editable)         |
+|  Button B: Submit to Exam Dept (Status: SUBMITTED_TO_EXAM_DEPT, Teacher Locked 403)     |
+|  Exam Dept Review -> Approve (APPROVED_BY_EXAM_DEPT) OR Request Correction              |
++-----------------------------------------------------------------------------------------+
+```
+
+### Mathematical Exactness Formula
+Weighted grade calculations adhere to standard university-style academic regulations:
+$$\text{Weighted Contribution} = \left(\frac{\text{Obtained Marks}}{\text{Max Marks}}\right) \times \text{Component Weightage Percentage}$$
+
+1. **Individual Item Weightages within Categories**:
+   - Assignment 1 (Weightage 15%, Max Marks 100, Score 98):
+     $$\text{Contribution} = \left(\frac{98}{100}\right) \times 15 = 14.7000$$
+   - Assignment 2 (Weightage 15%, Max Marks 100, Score 66):
+     $$\text{Contribution} = \left(\frac{66}{100}\right) \times 15 = 9.9000$$
+   - Total Continuous Assessment Contribution:
+     $$14.7000 + 9.9000 = 24.6000\text{ out of } 30.0000$$
+2. **Final Grade Aggregation**:
+   - Participation (Weightage 10%, Max 10, Score 9): $9.0000$
+   - Midterm (Weightage 20%, Max 50, Score 45): $18.0000$
+   - Final Exam (Weightage 40%, Max 100, Score 80): $32.0000$
+   - **Cumulative Total Score**: $24.6000 + 9.0000 + 18.0000 + 32.0000 = 83.6000\text{ out of } 100.0000$
+   - **Letter Grade & GPA**: Calculated directly against the institutional `GradingScale` (e.g., Grade B, GPA 3.00, Status: PASS).
+
+### Two-Button Submission Workflow & State Machine
+1. **Button A: "Submit to Students / Publish Results"**:
+   - Target Status: `PUBLISHED_TO_STUDENTS`
+   - Purpose: Students and parents immediately gain transparency into continuous assessment marks and feedback via student portal.
+   - Mutability: Teacher editing remains **active** to allow clarifications and adjustments before final submission.
+2. **Button B: "Submit to Exam Department"**:
+   - Target Status: `SUBMITTED_TO_EXAM_DEPT`
+   - Purpose: Formal handoff to Examination Department for moderation, verification, and transcript authorization.
+   - Mutability: Teacher editing is **strictly locked**. Any attempt by a teacher to update assignment details, grade submissions, or save gradebook marks returns `403 Forbidden` (`RESULTS_ALREADY_SUBMITTED_TO_EXAM_DEPT`).
+3. **Exam Department Verification & Audit**:
+   - **Approve**: Transitions status to `APPROVED_BY_EXAM_DEPT`, finalizing official transcripts and report cards.
+   - **Request Correction**: Transitions status to `CORRECTION_REQUESTED` with audited comments and reason. Unlocks teacher editing for necessary revisions. Once revised, the teacher resubmits via Button B.
+
+### Unified Gradebook Matrix View
+The unified gradebook matrix (`GET /api/v1/assessments/gradebook`) aggregates all components in real-time:
+- **Sticky Column Identification**: Student roll number, registration number, and full name pinned horizontally.
+- **Dynamic Component Columns**: Renders all categories and items (LMS assignments, quizzes, manual marks) with max points and weightage percentages.
+- **Live Cell Computation**: Displays student obtained marks alongside the calculated weighted contribution badge.
+- **Attendance / Status Overrides**: Toggles for `PRESENT`, `ABSENT` (0 marks), and `EXCUSED` (excluded from penalty).
+- **Transactional Batch Saving**: `POST /api/v1/assessments/gradebook/save` updates marks, recalculates subject totals, and synchronizes LMS submissions inside a single PostgreSQL transaction.
+- **Summary Statistics**: Class component averages, enrolled student count, class pass rate, and overall score range.
+
+### Security, Multi-Tenancy & Auditing
+- **RBAC & Teacher Ownership**: Teachers can only view and manage gradebooks for their assigned courses and sections. Administrative roles (`ROLE_INSTITUTION_ADMIN`, `SYSTEM_ADMIN`) retain cross-section oversight.
+- **Strict Tenant Isolation**: Enforced at the middleware layer (`tenant.ts`), including cross-tenant header spoofing rejection (`req.headers['x-institution-id']` validation against user token).
+- **Deadline Extension Audit**: Late submission extensions after expiration dates are tracked in `AssessmentDeadlineHistory` with timestamps, old/new deadlines, and extension rationales.
+

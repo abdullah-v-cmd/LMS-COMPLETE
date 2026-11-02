@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -630,16 +631,28 @@ export const CoursesPage: React.FC = () => {
           </p>
         </div>
 
-        {canCreateCourse && (
-          <button
-            type="button"
-            onClick={handleOpenCourseModal}
-            className="flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 transition"
-          >
-            <Plus className="h-4 w-4" />
-            + Create New Course
-          </button>
-        )}
+        <div className="flex items-center gap-3">
+          {(isTeacher || isAdmin) && (
+            <Link
+              to="/assessments?tab=gradebook"
+              className="flex items-center gap-2 rounded-xl bg-indigo-50 border border-indigo-200 px-4 py-2.5 text-sm font-bold text-indigo-700 hover:bg-indigo-100 transition shadow-sm"
+            >
+              <Layers className="h-4 w-4 text-indigo-600" />
+              Unified Gradebook
+            </Link>
+          )}
+
+          {canCreateCourse && (
+            <button
+              type="button"
+              onClick={handleOpenCourseModal}
+              className="flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 transition"
+            >
+              <Plus className="h-4 w-4" />
+              + Create New Course
+            </button>
+          )}
+        </div>
       </header>
 
       {/* Notice / Alerts */}

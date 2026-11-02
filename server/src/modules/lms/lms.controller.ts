@@ -52,8 +52,17 @@ export class LmsController {
 
   static async createAssignment(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      const assignment = await LmsService.createAssignment(req.institutionId!, req.body);
+      const assignment = await LmsService.createAssignment(req.institutionId!, req.body, req.user);
       return sendSuccess(res, assignment, 201);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async updateAssignment(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const updated = await LmsService.updateAssignment(req.params.id, req.institutionId!, req.user!, req.body);
+      return sendSuccess(res, updated, 200);
     } catch (error) {
       next(error);
     }

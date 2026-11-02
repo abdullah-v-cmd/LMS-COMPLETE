@@ -98,7 +98,9 @@ export class ExamsController {
   static async getReportCards(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const studentId = req.query.studentId as string | undefined;
-      const reportCards = await ExamsService.getReportCards(req.institutionId!, req.user!, studentId);
+      const examSessionId = req.query.examSessionId as string | undefined;
+      const sectionId = req.query.sectionId as string | undefined;
+      const reportCards = await ExamsService.getReportCards(req.institutionId!, req.user!, studentId, examSessionId, sectionId);
       return sendSuccess(res, reportCards);
     } catch (error) {
       next(error);
