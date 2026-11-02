@@ -388,23 +388,42 @@ The LMS and Assessment systems operate as a single authoritative grading archite
 +-----------------------------------------------------------------------------------------+
 ```
 
-### Mathematical Exactness Formula
-Weighted grade calculations adhere to standard university-style academic regulations:
-$$\text{Weighted Contribution} = \left(\frac{\text{Obtained Marks}}{\text{Max Marks}}\right) \times \text{Component Weightage Percentage}$$
+### Mathematical Exactness Formula & Option A Shared Category
 
-1. **Individual Item Weightages within Categories**:
-   - Assignment 1 (Weightage 15%, Max Marks 100, Score 98):
-     $$\text{Contribution} = \left(\frac{98}{100}\right) \times 15 = 14.7000$$
-   - Assignment 2 (Weightage 15%, Max Marks 100, Score 66):
-     $$\text{Contribution} = \left(\frac{66}{100}\right) \times 15 = 9.9000$$
-   - Total Continuous Assessment Contribution:
-     $$14.7000 + 9.9000 = 24.6000\text{ out of } 30.0000$$
-2. **Final Grade Aggregation**:
-   - Participation (Weightage 10%, Max 10, Score 9): $9.0000$
-   - Midterm (Weightage 20%, Max 50, Score 45): $18.0000$
-   - Final Exam (Weightage 40%, Max 100, Score 80): $32.0000$
-   - **Cumulative Total Score**: $24.6000 + 9.0000 + 18.0000 + 32.0000 = 83.6000\text{ out of } 100.0000$
-   - **Letter Grade & GPA**: Calculated directly against the institutional `GradingScale` (e.g., Grade B, GPA 3.00, Status: PASS).
+Academic grading adheres to standard university assessment regulations supporting both component-level weightages and **Option A Shared Category Grading**:
+
+#### Option A: Shared Category Model (Default for LMS Assignments)
+All LMS assignments belong to a single configured shared category (e.g. `Assignments` with weightage $W_{cat} = 15\%$).
+1. **Equal Weighting across Category Assignments**:
+   When items share equal weight in the category:
+   $$\text{Category Score \%} = \frac{1}{N} \sum_{i=1}^{N} \left(\frac{\text{Obtained Marks}_i}{\text{Max Marks}_i}\right) \times 100$$
+   Example:
+   - Assignment 1: $98 / 100 = 98.0000\%$
+   - Assignment 2: $66 / 100 = 66.0000\%$
+   - Category Average Score:
+     $$\text{Category \%} = \frac{98 + 66}{2} = 82.0000\%$$
+   - **Contribution to Final Subject Grade**:
+     $$\text{Category Contribution} = 82.0000\% \times 15\% = 12.3000\text{ out of } 15.0000$$
+     *(Note: This yields exactly 12.3/15, strictly avoiding double-counting such as 24.6/30 or duplicating the 15% category weight).*
+
+2. **Explicit Internal Allocations within Shared Category**:
+   When internal percentage allocations $a_i$ are specified (where $\sum a_i = 100\%$):
+   $$\text{Category Score \%} = \sum_{i=1}^{N} \left(\frac{\text{Obtained Marks}_i}{\text{Max Marks}_i} \times a_i\right)$$
+   $$\text{Category Contribution} = \text{Category Score \%} \times \left(\frac{W_{cat}}{100}\right)$$
+
+3. **Final Grade Aggregation**:
+   - Shared Assignments Category (Weightage 15%): $12.3000$
+   - Class Participation (Weightage 10%, Max 10, Score 9.5): $9.5000$
+   - Midterm Exam (Weightage 20%, Max 50, Score 45): $\left(\frac{45}{50}\right) \times 20 = 18.0000$
+   - Final Exam (Weightage 40%, Max 100, Score 90): $\left(\frac{90}{100}\right) \times 40 = 36.0000$
+   - Practical / Attendance (Weightage 15%, Max 100, Score 53.33): $8.0000$
+   - **Cumulative Total Subject Score**: $12.3000 + 9.5000 + 18.0000 + 36.0000 + 8.0000 = 83.8000\text{ out of } 100.0000$
+   - **Letter Grade & GPA**: Evaluated against the institutional `InstitutionGradeBand` scale (e.g. Score 83.8% -> Grade 'P', GPA 3.25).
+
+### Assignment Numbering & Display Order Preservation
+- LMS assignments and assessment items include a dedicated `displayOrder` integer column.
+- Teachers can reorder, renumber, or rename assignments post-submission without affecting immutable foreign keys, student submissions, awarded marks, or feedback.
+- Reordering operations enforce uniqueness per course and log before/after snapshots to `AuditEvent`.
 
 ### Two-Button Submission Workflow & State Machine
 1. **Button A: "Submit to Students / Publish Results"**:

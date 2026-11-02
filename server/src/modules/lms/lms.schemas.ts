@@ -35,6 +35,7 @@ export const createAssignmentSchema = z.object({
   dueDate: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}/)),
   allowLateSubmissions: z.boolean().default(true),
   latePenaltyPercent: z.number().min(0).max(100).default(0),
+  displayOrder: z.number().int().optional(),
 });
 
 export const submitAssignmentSchema = z.object({
@@ -56,6 +57,8 @@ export const updateAssignmentSchema = z.object({
   dueDate: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}/)).optional(),
   allowLateSubmissions: z.boolean().optional(),
   latePenaltyPercent: z.number().min(0).max(100).optional(),
+  displayOrder: z.number().int().optional(),
   reason: z.string().optional(),
 });
+
 

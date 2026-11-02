@@ -344,22 +344,36 @@ export class LmsService {
         });
       }
 
-      // Find or create appropriate category
+      // Find or create appropriate category - prioritize shared Assignments category
       let category = scheme.categories.find(
-        (c) => c.name.toLowerCase() === data.title.toLowerCase() || c.name.toLowerCase() === 'assignments'
+        (c) =>
+          c.name.toLowerCase() === 'assignments' ||
+          c.name.toLowerCase() === 'assignment' ||
+          c.name.toLowerCase().includes('assignment')
       );
+
+      if (!category) {
+        category = scheme.categories.find(
+          (c) => c.name.toLowerCase() === data.title.toLowerCase()
+        );
+      }
 
       if (!category) {
         category = await prisma.assessmentCategory.create({
           data: {
             assessmentSchemeId: scheme.id,
-            name: data.title,
+            name: 'Assignments',
             weightagePercentage: data.weightagePercent ?? 15,
-            description: `Assessment component for ${data.title}`,
+            description: 'Shared assessment category for assignments',
             displayOrder: scheme.categories.length,
           },
         });
       }
+
+      const existingCount = await prisma.assignment.count({
+        where: { courseId: data.courseId },
+      });
+      const order = data.displayOrder ?? existingCount + 1;
 
       const item = await prisma.assessmentItem.create({
         data: {
@@ -367,13 +381,19 @@ export class LmsService {
           title: data.title,
           instructions: finalInstructions,
           maxMarks: data.maxPoints,
-          weightagePercentage: data.weightagePercent ?? category.weightagePercentage,
+          weightagePercentage: data.weightagePercent ?? null,
+          displayOrder: order,
           dueDate: new Date(data.dueDate),
           isPublished: true,
         },
       });
       assessmentItemId = item.id;
     }
+
+    const existingCountAll = await prisma.assignment.count({
+      where: { courseId: data.courseId },
+    });
+    const orderFinal = data.displayOrder ?? existingCountAll + 1;
 
     return prisma.assignment.create({
       data: {
@@ -382,6 +402,7 @@ export class LmsService {
         instructions: finalInstructions,
         maxPoints: data.maxPoints,
         weightagePercent: data.weightagePercent ?? null,
+        displayOrder: orderFinal,
         assessmentItemId,
         dueDate: new Date(data.dueDate),
         allowLateSubmissions: data.allowLateSubmissions ?? true,
@@ -442,6 +463,23 @@ export class LmsService {
       }
     }
 
+    // Check duplicate numbering / display order if displayOrder changed
+    if (data.displayOrder !== undefined && data.displayOrder !== assignment.displayOrder) {
+      const duplicate = await prisma.assignment.findFirst({
+        where: {
+          courseId: course.id,
+          displayOrder: data.displayOrder,
+          id: { not: assignmentId },
+        },
+      });
+      if (duplicate) {
+        throw {
+          status: 400,
+          message: `An assignment with display order/number ${data.displayOrder} already exists in this course`,
+        };
+      }
+    }
+
     // If dueDate changed: record in AssessmentDeadlineHistory (even after original dueDate has passed)
     if (data.dueDate && assignment.assessmentItemId) {
       const newDueDate = new Date(data.dueDate);
@@ -454,14 +492,42 @@ export class LmsService {
           changedByUserId: user.id,
         },
       });
+    }
 
+    // Record audit event for assignment changes (display order, title, max points, dueDate)
+    await prisma.auditEvent.create({
+      data: {
+        institutionId,
+        userId: user.id,
+        action: 'ASSIGNMENT_UPDATED',
+        entity: 'Assignment',
+        entityId: assignmentId,
+        oldValuesJson: JSON.stringify({
+          title: assignment.title,
+          displayOrder: assignment.displayOrder,
+          dueDate: assignment.dueDate,
+          maxPoints: assignment.maxPoints,
+          weightagePercent: assignment.weightagePercent,
+        }),
+        newValuesJson: JSON.stringify({
+          title: data.title ?? assignment.title,
+          displayOrder: data.displayOrder ?? assignment.displayOrder,
+          dueDate: data.dueDate ? new Date(data.dueDate) : assignment.dueDate,
+          maxPoints: data.maxPoints ?? assignment.maxPoints,
+          weightagePercent: data.weightagePercent ?? assignment.weightagePercent,
+        }),
+      },
+    });
+
+    if (assignment.assessmentItemId) {
       await prisma.assessmentItem.update({
         where: { id: assignment.assessmentItemId },
         data: {
-          dueDate: newDueDate,
           title: data.title ?? undefined,
+          displayOrder: data.displayOrder ?? undefined,
           maxMarks: data.maxPoints ?? undefined,
           weightagePercentage: data.weightagePercent ?? undefined,
+          dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
         },
       });
     }
@@ -487,6 +553,7 @@ export class LmsService {
         instructions: finalInstructions ?? undefined,
         maxPoints: data.maxPoints ?? undefined,
         weightagePercent: data.weightagePercent ?? undefined,
+        displayOrder: data.displayOrder ?? undefined,
         dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
         allowLateSubmissions: data.allowLateSubmissions !== undefined ? data.allowLateSubmissions : undefined,
         latePenaltyPercent: data.latePenaltyPercent !== undefined ? data.latePenaltyPercent : undefined,

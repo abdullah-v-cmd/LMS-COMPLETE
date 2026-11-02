@@ -859,31 +859,57 @@ export class AssessmentService {
     for (const cat of scheme.categories) {
       let catObtained = 0;
       let catMax = 0;
-      let gradedCount = 0;
-      let itemWeightedSum = 0;
-      let hasItemWeights = false;
       const validAssessments = cat.assessments;
 
-      for (const item of validAssessments) {
+      // Filter graded items for this student
+      const gradedItems = validAssessments.filter((item) => {
         const mark = item.marks[0];
-        if (!mark) continue; // Pending submission: excluded from calculation policy
-        if (mark.isExcused) continue; // Excused: excluded from calculation
+        return mark && !mark.isExcused;
+      });
 
-        gradedCount++;
+      for (const item of gradedItems) {
+        const mark = item.marks[0];
         const obtained = mark.isAbsent ? 0 : mark.marksObtained ?? 0;
         catObtained += obtained;
         catMax += item.maxMarks;
-
-        if (item.weightagePercentage !== null && item.weightagePercentage !== undefined) {
-          hasItemWeights = true;
-          const itemContribution = item.maxMarks > 0 ? (obtained / item.maxMarks) * item.weightagePercentage : 0;
-          itemWeightedSum += itemContribution;
-        }
       }
 
-      const averagePercentage = catMax > 0 ? (catObtained / catMax) * 100 : 0;
-      // Category Contribution = (Category Average % * Weightage %) / 100 or sum of item contributions
-      const contribution = hasItemWeights ? itemWeightedSum : (averagePercentage * cat.weightagePercentage) / 100;
+      // Check for explicit internal allocation: items have internal weights summing to 100% of category
+      const weights = gradedItems
+        .map((i) => i.weightagePercentage)
+        .filter((w): w is number => w !== null && w !== undefined);
+
+      const hasExplicit100PercentWeights =
+        weights.length === gradedItems.length &&
+        weights.length > 0 &&
+        Math.abs(weights.reduce((a, b) => a + b, 0) - 100) < 0.01;
+
+      let categoryPercentage = 0;
+
+      if (hasExplicit100PercentWeights) {
+        // Explicit internal allocation: sum of (item % * internal allocation %)
+        categoryPercentage = gradedItems.reduce((acc, item) => {
+          const mark = item.marks[0];
+          const obtained = mark.isAbsent ? 0 : mark.marksObtained ?? 0;
+          const itemPct = item.maxMarks > 0 ? (obtained / item.maxMarks) * 100 : 0;
+          const internalWeight = item.weightagePercentage! / 100;
+          return acc + itemPct * internalWeight;
+        }, 0);
+      } else if (gradedItems.length > 0) {
+        // Default: Equal weighting across all graded items in the category
+        const sumItemPercentages = gradedItems.reduce((acc, item) => {
+          const mark = item.marks[0];
+          const obtained = mark.isAbsent ? 0 : mark.marksObtained ?? 0;
+          const itemPct = item.maxMarks > 0 ? (obtained / item.maxMarks) * 100 : 0;
+          return acc + itemPct;
+        }, 0);
+        categoryPercentage = sumItemPercentages / gradedItems.length;
+      } else {
+        categoryPercentage = 0;
+      }
+
+      // Category Contribution = (Category Percentage / 100) * Category Weightage %
+      const contribution = (categoryPercentage / 100) * cat.weightagePercentage;
       totalPercentage += contribution;
 
       categoryBreakdown.push({
@@ -891,10 +917,10 @@ export class AssessmentService {
         categoryName: cat.name,
         weightage: cat.weightagePercentage,
         assessmentsCount: validAssessments.length,
-        gradedCount,
+        gradedCount: gradedItems.length,
         totalObtained: Number(catObtained.toFixed(2)),
         totalMax: Number(catMax.toFixed(2)),
-        averagePercentage: Number(averagePercentage.toFixed(4)),
+        averagePercentage: Number(categoryPercentage.toFixed(4)),
         contribution: Number(contribution.toFixed(4)),
       });
     }
@@ -1208,11 +1234,13 @@ export class AssessmentService {
 
     await this.assertTeacherAuthorized(institutionId, user, result.subjectId, result.sectionId);
 
+    const targetStudentId = data.studentId || result.studentId;
+
     // Existing pending check
     const pending = await prisma.subjectResultCorrectionRequest.findFirst({
       where: {
         subjectResultId: data.subjectResultId,
-        studentId: data.studentId,
+        studentId: targetStudentId,
         status: CorrectionStatus.PENDING,
       },
     });
@@ -1223,7 +1251,7 @@ export class AssessmentService {
     return prisma.subjectResultCorrectionRequest.create({
       data: {
         subjectResultId: data.subjectResultId,
-        studentId: data.studentId,
+        studentId: targetStudentId,
         subjectId: result.subjectId,
         sectionId: result.sectionId,
         currentMarks: result.totalPercentage,
@@ -1244,11 +1272,13 @@ export class AssessmentService {
     institutionId: string,
     user: AuthenticatedUser,
     data: {
-      subjectId: string;
-      sectionId: string;
-      academicTermId: string;
-      status: 'APPROVED' | 'OFFICIALLY_PUBLISHED' | 'RETURNED_FOR_CORRECTION';
+      subjectId?: string;
+      sectionId?: string;
+      academicTermId?: string;
+      status?: 'APPROVED' | 'OFFICIALLY_PUBLISHED' | 'RETURNED_FOR_CORRECTION';
+      decision?: 'APPROVE' | 'OFFICIALLY_PUBLISH' | 'RETURN_FOR_CORRECTION' | 'REJECT';
       notes?: string;
+      comments?: string;
     }
   ) {
     const canReview = ([
@@ -1262,24 +1292,32 @@ export class AssessmentService {
       throw { status: 403, message: 'Access denied: Only Exam Department or Administrators can approve or publish results' };
     }
 
-    const where = {
-      institutionId,
-      subjectId: data.subjectId,
-      sectionId: data.sectionId,
-      academicTermId: data.academicTermId,
-    };
+    const where: any = { institutionId };
+    if (data.subjectId) where.subjectId = data.subjectId;
+    if (data.sectionId) where.sectionId = data.sectionId;
+    if (data.academicTermId) where.academicTermId = data.academicTermId;
 
     const results = await prisma.subjectResult.findMany({ where });
     if (results.length === 0) {
       throw { status: 404, message: 'No subject results found for this section' };
     }
 
+    const resolvedStatus =
+      data.status ||
+      (data.decision === 'APPROVE'
+        ? 'APPROVED'
+        : data.decision === 'OFFICIALLY_PUBLISH'
+        ? 'OFFICIALLY_PUBLISHED'
+        : 'RETURNED_FOR_CORRECTION');
+
     const targetStatus =
-      data.status === 'APPROVED'
+      resolvedStatus === 'APPROVED'
         ? SubjectResultStatus.APPROVED
-        : data.status === 'OFFICIALLY_PUBLISHED'
+        : resolvedStatus === 'OFFICIALLY_PUBLISHED'
         ? SubjectResultStatus.OFFICIALLY_PUBLISHED
         : SubjectResultStatus.RETURNED_FOR_CORRECTION;
+
+    const noteText = data.notes || data.comments || `Exam Department set status to ${targetStatus}`;
 
     return prisma.$transaction(async (tx) => {
       await tx.subjectResult.updateMany({
@@ -1288,15 +1326,15 @@ export class AssessmentService {
           status: targetStatus,
           approvedByUserId: user.id,
           approvedAt: new Date(),
-          ...(data.status === 'OFFICIALLY_PUBLISHED' ? { officiallyPublishedAt: new Date() } : {}),
+          ...(resolvedStatus === 'OFFICIALLY_PUBLISHED' ? { officiallyPublishedAt: new Date() } : {}),
         },
       });
 
       await tx.subjectResultAudit.create({
         data: {
           actorId: user.id,
-          action: data.status,
-          reason: data.notes ?? `Exam Department set status to ${data.status}`,
+          action: targetStatus,
+          reason: noteText,
           newState: {
             subjectId: data.subjectId,
             sectionId: data.sectionId,
@@ -1306,10 +1344,24 @@ export class AssessmentService {
       });
 
       return {
-        message: `Results ${data.status.toLowerCase()} successfully`,
+        message: `Results ${resolvedStatus.toLowerCase()} successfully`,
         status: targetStatus,
         affectedCount: results.length,
       };
+    });
+  }
+
+  /**
+   * Officially publish section results to student transcripts
+   */
+  static async publishSectionResultByExamDept(
+    institutionId: string,
+    user: AuthenticatedUser,
+    data: { subjectId: string; sectionId: string; academicTermId: string; notes?: string }
+  ) {
+    return this.reviewSectionResultByExamDept(institutionId, user, {
+      ...data,
+      status: 'OFFICIALLY_PUBLISHED',
     });
   }
 
@@ -1563,6 +1615,7 @@ export class AssessmentService {
       return {
         ...result,
         gradeInProgress: true,
+        gradeStatusLabel: 'Grade in Progress',
         displayGrade: 'GRADE IN PROGRESS',
         isOfficiallyPublished: false,
         notice: 'Subject result is under examination processing and moderation. Not yet finalized.',

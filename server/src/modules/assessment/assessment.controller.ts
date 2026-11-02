@@ -235,6 +235,19 @@ export class AssessmentController {
     }
   }
 
+  static async publishSectionResultByExamDept(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const result = await AssessmentService.publishSectionResultByExamDept(
+        req.institutionId!,
+        req.user!,
+        req.body
+      );
+      return sendSuccess(res, result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   static async reviewCorrectionRequest(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const result = await AssessmentService.reviewCorrectionRequest(

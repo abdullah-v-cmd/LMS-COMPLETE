@@ -114,6 +114,12 @@ router.post(
   logAuditEvent('RESULT_CORRECTION_REQUESTED', 'SubjectResultCorrectionRequest'),
   AssessmentController.requestResultCorrection
 );
+router.post(
+  '/corrections/request',
+  validateRequest({ body: requestResultCorrectionSchema }),
+  logAuditEvent('RESULT_CORRECTION_REQUESTED', 'SubjectResultCorrectionRequest'),
+  AssessmentController.requestResultCorrection
+);
 
 // Exam Department Dashboard & Reviews
 router.get('/exam-dept/dashboard', AssessmentController.getExamDepartmentDashboard);
@@ -122,6 +128,11 @@ router.post(
   validateRequest({ body: examDepartmentReviewSchema }),
   logAuditEvent('EXAM_DEPT_RESULT_REVIEWED', 'SubjectResult'),
   AssessmentController.reviewSectionResultByExamDept
+);
+router.post(
+  '/exam-dept/publish',
+  logAuditEvent('EXAM_DEPT_RESULT_PUBLISHED', 'SubjectResult'),
+  AssessmentController.publishSectionResultByExamDept
 );
 router.post(
   '/exam-dept/corrections/:id/review',

@@ -116,7 +116,7 @@ export const submitSubjectResultSchema = z.object({
 
 export const requestResultCorrectionSchema = z.object({
   subjectResultId: z.string().uuid(),
-  studentId: z.string().uuid(),
+  studentId: z.string().uuid().optional(),
   proposedMarks: z.number().min(0).max(100),
   reason: z.string().trim().min(5, 'Reason must be at least 5 characters').max(1000),
   supportingEvidence: z.string().trim().max(2000).optional(),
@@ -128,8 +128,13 @@ export const reviewResultCorrectionSchema = z.object({
 });
 
 export const examDepartmentReviewSchema = z.object({
-  status: z.enum(['APPROVED', 'OFFICIALLY_PUBLISHED', 'RETURNED_FOR_CORRECTION']),
+  subjectId: z.string().uuid().optional(),
+  sectionId: z.string().uuid().optional(),
+  academicTermId: z.string().uuid().optional(),
+  status: z.enum(['APPROVED', 'OFFICIALLY_PUBLISHED', 'RETURNED_FOR_CORRECTION']).optional(),
+  decision: z.enum(['APPROVE', 'OFFICIALLY_PUBLISH', 'RETURN_FOR_CORRECTION', 'REJECT']).optional(),
   notes: z.string().trim().max(1000).optional(),
+  comments: z.string().trim().max(1000).optional(),
 });
 
 export const saveGradebookMarksSchema = z.object({

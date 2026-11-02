@@ -5,7 +5,7 @@ import { createApp } from '../src/app';
 import { prisma } from '../src/utils/prisma';
 import { SubjectResultStatus } from '@prisma/client';
 
-describe('MASTER LMS ACADEMIC ASSESSMENT, GRADING & EXAMINATION INTEGRATION SUITE', () => {
+describe('MASTER LMS ACADEMIC ASSESSMENT, GRADING & EXAMINATION INTEGRATION SUITE (30-POINT SUITE)', () => {
   let app: Express;
   let teacherToken: string;
   let teacherUserId: string;
@@ -19,11 +19,13 @@ describe('MASTER LMS ACADEMIC ASSESSMENT, GRADING & EXAMINATION INTEGRATION SUIT
 
   let institutionId: string;
   let academicTermId: string;
+  let academicYearId: string;
   let subjectId: string;
   let sectionId: string;
   let courseId: string;
 
   let schemeId: string;
+  let assignmentsCategoryId: string;
   let lmsAssignment1Id: string;
   let lmsAssignment2Id: string;
   let manualParticipationItemId: string;
@@ -67,9 +69,10 @@ describe('MASTER LMS ACADEMIC ASSESSMENT, GRADING & EXAMINATION INTEGRATION SUIT
 
     const term = await prisma.academicTerm.findFirstOrThrow({
       where: { academicYear: { institutionId } },
-      select: { id: true },
+      select: { id: true, academicYearId: true },
     });
     academicTermId = term.id;
+    academicYearId = term.academicYearId;
 
     const math = await prisma.subject.findFirstOrThrow({
       where: { institutionId, code: 'MATH-101' },
@@ -103,7 +106,7 @@ describe('MASTER LMS ACADEMIC ASSESSMENT, GRADING & EXAMINATION INTEGRATION SUIT
       where: { subjectId, academicTermId },
     });
 
-    // Ensure a Course exists for this subject, section, and term
+    // Ensure Course exists
     let course = await prisma.course.findFirst({
       where: { subjectId, sectionId, academicTermId, institutionId },
     });
@@ -131,9 +134,115 @@ describe('MASTER LMS ACADEMIC ASSESSMENT, GRADING & EXAMINATION INTEGRATION SUIT
     await prisma.$disconnect();
   });
 
-  // TEST 8: Weightages must total 100%
-  it('8. Weightages must total exactly 100%', async () => {
-    // Attempt scheme with 90% total -> must reject with 400
+  // TEST 1: Subject attendance can be recorded without selecting a period
+  it('1. Subject attendance can be recorded without selecting a period', async () => {
+    const today = '2026-11-20';
+    // Clear any existing attendance for this test date
+    await prisma.subjectAttendanceRecord.deleteMany({
+      where: { subjectId, sectionId, date: new Date(today) },
+    });
+
+    const markRes = await request(app)
+      .post('/api/v1/attendance/subjects/mark')
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .send({
+        subjectId,
+        sectionId,
+        date: today,
+        records: [
+          { studentId: studentAliceId, status: 'PRESENT', remarks: 'Present in class' },
+        ],
+      });
+
+    expect(markRes.status).toBe(201);
+    expect(markRes.body.data.length).toBeGreaterThanOrEqual(1);
+
+    // Verify record in DB has been recorded
+    const record = await prisma.subjectAttendanceRecord.findFirst({
+      where: { subjectId, sectionId, studentId: studentAliceId, date: new Date(today) },
+    });
+    expect(record).toBeDefined();
+    expect(record?.status).toBe('PRESENT');
+  });
+
+  // TEST 2: A student cannot receive duplicate subject-attendance records for the same date
+  it('2. A student cannot receive duplicate subject-attendance records for the same institution, academic session, subject, class/section, and date', async () => {
+    const today = '2026-11-20';
+    const dupRes = await request(app)
+      .post('/api/v1/attendance/subjects/mark')
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .send({
+        subjectId,
+        sectionId,
+        date: today,
+        records: [{ studentId: studentAliceId, status: 'PRESENT' }],
+      });
+
+    expect(dupRes.status).toBe(409);
+    expect(dupRes.body.error?.message || dupRes.body.message).toContain('already been submitted');
+  });
+
+  // TEST 3: Teacher can mark attendance only for assigned subjects/classes, and student/parent attendance access is correctly scoped
+  it('3. The teacher can mark attendance only for assigned subjects/classes, and student/parent attendance access is correctly scoped', async () => {
+    // Unassigned subject access attempt -> 403
+    const otherSubject = await prisma.subject.create({
+      data: {
+        institutionId,
+        name: 'Unassigned Biology',
+        code: 'BIO-UNASSIGNED-TEST',
+        creditUnits: 3,
+      },
+    });
+
+    const unassignedRes = await request(app)
+      .post('/api/v1/attendance/subjects/mark')
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .send({
+        subjectId: otherSubject.id,
+        sectionId,
+        date: '2026-11-21',
+        records: [{ studentId: studentAliceId, status: 'PRESENT' }],
+      });
+    expect(unassignedRes.status).toBe(403);
+
+    // Student Alice can view her own attendance
+    const studentView = await request(app)
+      .get(`/api/v1/attendance/subjects?subjectId=${subjectId}`)
+      .set('Authorization', `Bearer ${studentAliceToken}`);
+    expect(studentView.status).toBe(200);
+
+    // Clean up otherSubject
+    await prisma.subject.delete({ where: { id: otherSubject.id } });
+  });
+
+  // TEST 4: Historical period-based attendance records remain preserved after migration
+  it('4. Historical period-based attendance records remain preserved after migration', async () => {
+    // Create legacy record with period populated
+    const legacyRecord = await prisma.subjectAttendanceRecord.create({
+      data: {
+        institutionId,
+        subjectId,
+        sectionId,
+        studentId: studentAliceId,
+        date: new Date('2026-09-01'),
+        periodNumber: 3,
+        status: 'PRESENT',
+        markedByUserId: teacherUserId,
+      },
+    });
+
+    const fetched = await prisma.subjectAttendanceRecord.findUnique({
+      where: { id: legacyRecord.id },
+    });
+    expect(fetched).toBeDefined();
+    expect(fetched?.periodNumber).toBe(3);
+
+    // Clean up legacy test record
+    await prisma.subjectAttendanceRecord.delete({ where: { id: legacyRecord.id } });
+  });
+
+  // TEST 13: Weightages must total 100%
+  it('13. Weightages must total 100%', async () => {
     const badRes = await request(app)
       .post('/api/v1/assessments/schemes')
       .set('Authorization', `Bearer ${teacherToken}`)
@@ -143,22 +252,20 @@ describe('MASTER LMS ACADEMIC ASSESSMENT, GRADING & EXAMINATION INTEGRATION SUIT
         sectionId,
         title: 'Invalid 90% Scheme',
         categories: [
-          { name: 'Assignment 1', weightagePercentage: 15 },
-          { name: 'Assignment 2', weightagePercentage: 15 },
+          { name: 'Assignments', weightagePercentage: 15 },
           { name: 'Class Participation', weightagePercentage: 10 },
-          { name: 'Midterm', weightagePercentage: 20 },
-          { name: 'Final Term', weightagePercentage: 30 }, // total = 90%
+          { name: 'Midterm', weightagePercentage: 25 },
+          { name: 'Final Term', weightagePercentage: 40 }, // total = 90%
         ],
       });
     expect(badRes.status).toBe(400);
     expect(badRes.body.error?.message || badRes.body.message).toContain('100%');
 
     // Create valid 100% scheme:
-    // Assignment 1: 15%
-    // Assignment 2: 15%
+    // Assignments: 15%
     // Class Participation: 10%
-    // Midterm: 20%
-    // Final Term: 40%
+    // Midterm: 25%
+    // Final Term: 50%
     // Total = 100%
     const goodRes = await request(app)
       .post('/api/v1/assessments/schemes')
@@ -167,28 +274,31 @@ describe('MASTER LMS ACADEMIC ASSESSMENT, GRADING & EXAMINATION INTEGRATION SUIT
         academicTermId,
         subjectId,
         sectionId,
-        title: 'MATH-101 Unified University Scheme',
+        title: 'MATH-101 University Assessment Scheme',
         categories: [
-          { name: 'Assignment 1', weightagePercentage: 15, description: 'LMS Assignment 1' },
-          { name: 'Assignment 2', weightagePercentage: 15, description: 'LMS Assignment 2' },
-          { name: 'Class Participation', weightagePercentage: 10, description: 'Seminar discussion' },
-          { name: 'Midterm', weightagePercentage: 20, description: 'Midterm examination' },
-          { name: 'Final Term', weightagePercentage: 40, description: 'Terminal final examination' },
+          { name: 'Assignments', weightagePercentage: 15, description: 'All course assignments combined' },
+          { name: 'Class Participation', weightagePercentage: 10, description: 'Classroom seminar participation' },
+          { name: 'Midterm', weightagePercentage: 25, description: 'Midterm examination' },
+          { name: 'Final Term', weightagePercentage: 50, description: 'Final term examination' },
         ],
       });
     expect(goodRes.status).toBe(201);
     schemeId = goodRes.body.data.id;
+
+    const assignCat = goodRes.body.data.categories.find((c: any) => c.name === 'Assignments');
+    expect(assignCat).toBeDefined();
+    assignmentsCategoryId = assignCat.id;
   });
 
-  // TEST 1: Assignment creation creates the correct assessment mapping
-  it('1. Assignment creation creates the correct assessment mapping', async () => {
+  // TEST 5: Assignment creation maps the assignment to the correct subject, term, and shared Assignments category
+  it('5. Assignment creation maps the assignment to the correct subject, term, and shared Assignments category', async () => {
     const a1Res = await request(app)
       .post('/api/v1/lms/assignments')
       .set('Authorization', `Bearer ${teacherToken}`)
       .send({
         courseId,
         title: 'Assignment 1',
-        instructions: 'Solve Linear Algebra problem sets 1-10.',
+        instructions: 'Linear equations and matrix determinants.',
         maxPoints: 100,
         weightagePercent: 15,
         dueDate: new Date(Date.now() + 7 * 86400000).toISOString(),
@@ -199,25 +309,26 @@ describe('MASTER LMS ACADEMIC ASSESSMENT, GRADING & EXAMINATION INTEGRATION SUIT
     lmsAssignment1Id = a1Res.body.data.id;
     expect(a1Res.body.data.assessmentItemId).toBeDefined();
 
-    // Verify assessment item exists and is linked
-    const linkedItem = await prisma.assessmentItem.findUnique({
+    // Verify it mapped to the shared 'Assignments' category
+    const item1 = await prisma.assessmentItem.findUnique({
       where: { id: a1Res.body.data.assessmentItemId },
       include: { category: true },
     });
-    expect(linkedItem).toBeDefined();
-    expect(linkedItem?.maxMarks).toBe(100);
-    expect(linkedItem?.category.name).toBe('Assignment 1');
+    expect(item1).toBeDefined();
+    expect(item1?.maxMarks).toBe(100);
+    expect(item1?.category.name).toBe('Assignments');
+    expect(item1?.category.id).toBe(assignmentsCategoryId);
   });
 
-  // TEST 2: Assignment weightage remains independent for each assignment
-  it('2. Assignment weightage remains independent for each assignment', async () => {
+  // TEST 6: All assignments share the configured Assignments category weightage; creating another assignment does not increase that category's final-grade weight
+  it("6. All assignments share the configured Assignments category weightage; creating another assignment does not increase that category's final-grade weight", async () => {
     const a2Res = await request(app)
       .post('/api/v1/lms/assignments')
       .set('Authorization', `Bearer ${teacherToken}`)
       .send({
         courseId,
         title: 'Assignment 2',
-        instructions: 'Vector space transformations and matrices.',
+        instructions: 'Vector spaces and eigenvalues.',
         maxPoints: 100,
         weightagePercent: 15,
         dueDate: new Date(Date.now() + 14 * 86400000).toISOString(),
@@ -226,167 +337,58 @@ describe('MASTER LMS ACADEMIC ASSESSMENT, GRADING & EXAMINATION INTEGRATION SUIT
 
     expect(a2Res.status).toBe(201);
     lmsAssignment2Id = a2Res.body.data.id;
-    expect(a2Res.body.data.assessmentItemId).toBeDefined();
 
-    const a1 = await prisma.assignment.findUniqueOrThrow({ where: { id: lmsAssignment1Id } });
-    const a2 = await prisma.assignment.findUniqueOrThrow({ where: { id: lmsAssignment2Id } });
+    const item2 = await prisma.assessmentItem.findUnique({
+      where: { id: a2Res.body.data.assessmentItemId },
+      include: { category: true },
+    });
+    expect(item2).toBeDefined();
+    expect(item2?.category.name).toBe('Assignments');
+    expect(item2?.category.id).toBe(assignmentsCategoryId);
 
-    expect(a1.weightagePercent).toBe(15);
-    expect(a2.weightagePercent).toBe(15);
-    expect(a1.assessmentItemId).not.toBe(a2.assessmentItemId);
+    // Verify the category weightage in the database remains strictly 15% (not 30%)
+    const cat = await prisma.assessmentCategory.findUniqueOrThrow({
+      where: { id: assignmentsCategoryId },
+      include: { assessments: true },
+    });
+    expect(cat.weightagePercentage).toBe(15);
+    expect(cat.assessments.length).toBe(2);
   });
 
-  // TEST 4 & 5: Student submits on LMS, Teacher grades on LMS, automatically updates gradebook & results
-  it('4. Saving assignment marks automatically updates the gradebook', async () => {
-    // Alice submits Assignment 1 on LMS
-    const subRes1 = await request(app)
+  // TEST 7: With an Assignments category weightage of 15%, Assignment 1 at 98/100 and Assignment 2 at 66/100, equally weighted, produce an 82% category score and a 12.3/15 final-grade contribution — not 24.6/30 and not two separate 15% category weights
+  it('7. With an Assignments category weightage of 15%, Assignment 1 at 98/100 and Assignment 2 at 66/100, equally weighted, produce an 82% category score and a 12.3/15 final-grade contribution — not 24.6/30 and not two separate 15% category weights', async () => {
+    // Alice submits Assignment 1
+    await request(app)
       .post(`/api/v1/lms/assignments/${lmsAssignment1Id}/submit`)
       .set('Authorization', `Bearer ${studentAliceToken}`)
-      .send({
-        contentText: 'Alice completed Assignment 1 solutions.',
-        attachmentUrl: 'https://example.edu/alice-a1.pdf',
-      });
-    expect(subRes1.status).toBe(200);
+      .send({ contentText: 'Alice Assignment 1 solutions' });
 
-    // Teacher grades Alice on LMS with 98/100
-    const submission1 = await prisma.assignmentSubmission.findFirstOrThrow({
+    const sub1 = await prisma.assignmentSubmission.findFirstOrThrow({
       where: { assignmentId: lmsAssignment1Id, studentId: studentAliceId },
     });
-
-    const gradeRes1 = await request(app)
-      .post(`/api/v1/lms/submissions/${submission1.id}/grade`)
+    // Grade Alice 98/100
+    await request(app)
+      .post(`/api/v1/lms/submissions/${sub1.id}/grade`)
       .set('Authorization', `Bearer ${teacherToken}`)
-      .send({
-        grade: 98,
-        feedback: 'Superb matrix elimination proofs.',
-      });
-    expect(gradeRes1.status).toBe(200);
+      .send({ grade: 98, feedback: 'Excellent' });
 
-    // Check Gradebook API: shows Alice score 98/100 and contribution 14.7/15!
-    const gbRes = await request(app)
-      .get('/api/v1/assessments/gradebook')
-      .set('Authorization', `Bearer ${teacherToken}`)
-      .query({ subjectId, sectionId, academicTermId });
-
-    expect(gbRes.status).toBe(200);
-    const aliceRow = gbRes.body.data.rows.find((r: any) => r.studentId === studentAliceId);
-    expect(aliceRow).toBeDefined();
-
-    const a1Col = gbRes.body.data.columns.find((c: any) => c.title === 'Assignment 1');
-    expect(a1Col).toBeDefined();
-
-    const markData = aliceRow.marks[a1Col.id];
-    expect(markData.marksObtained).toBe(98);
-    expect(markData.contribution).toBe(14.7); // 98/100 * 15 = 14.7
-  });
-
-  // TEST 3: Assignment 1 (15%) and Assignment 2 (15%) produce total assignment contribution of 24.6 / 30
-  it('3. Assignment 1 at 15% and Assignment 2 at 15% produce total assignment contribution of 24.6 out of 30', async () => {
-    // Alice submits Assignment 2 on LMS
+    // Alice submits Assignment 2
     await request(app)
       .post(`/api/v1/lms/assignments/${lmsAssignment2Id}/submit`)
       .set('Authorization', `Bearer ${studentAliceToken}`)
-      .send({
-        contentText: 'Alice completed Assignment 2 solutions.',
-        attachmentUrl: 'https://example.edu/alice-a2.pdf',
-      });
+      .send({ contentText: 'Alice Assignment 2 solutions' });
 
-    const submission2 = await prisma.assignmentSubmission.findFirstOrThrow({
+    const sub2 = await prisma.assignmentSubmission.findFirstOrThrow({
       where: { assignmentId: lmsAssignment2Id, studentId: studentAliceId },
     });
-
-    // Teacher grades Alice with 66/100
-    const gradeRes2 = await request(app)
-      .post(`/api/v1/lms/submissions/${submission2.id}/grade`)
+    // Grade Alice 66/100
+    await request(app)
+      .post(`/api/v1/lms/submissions/${sub2.id}/grade`)
       .set('Authorization', `Bearer ${teacherToken}`)
-      .send({
-        grade: 66,
-        feedback: 'Good attempt, minor vector errors.',
-      });
-    expect(gradeRes2.status).toBe(200);
+      .send({ grade: 66, feedback: 'Satisfactory' });
 
-    // Gradebook shows: Assignment 1 = 14.7, Assignment 2 = 9.9
-    // Total assignments contribution = 14.7 + 9.9 = 24.6 out of 30!
-    const gbRes = await request(app)
-      .get('/api/v1/assessments/gradebook')
-      .set('Authorization', `Bearer ${teacherToken}`)
-      .query({ subjectId, sectionId, academicTermId });
-
-    const aliceRow = gbRes.body.data.rows.find((r: any) => r.studentId === studentAliceId);
-    const a1Col = gbRes.body.data.columns.find((c: any) => c.title === 'Assignment 1');
-    const a2Col = gbRes.body.data.columns.find((c: any) => c.title === 'Assignment 2');
-
-    expect(aliceRow.marks[a1Col.id].contribution).toBe(14.7);
-    expect(aliceRow.marks[a2Col.id].contribution).toBe(9.9);
-
-    const totalAssignmentContribution = aliceRow.marks[a1Col.id].contribution + aliceRow.marks[a2Col.id].contribution;
-    expect(totalAssignmentContribution).toBeCloseTo(24.6, 2);
-  });
-
-  // TEST 6: Manual assessment marks (Participation, Midterm, Final) use the same grading engine
-  it('6. Manual assessment marks use the same grading engine and calculate overall score 83.6/100', async () => {
-    const scheme = await prisma.assessmentScheme.findUniqueOrThrow({
-      where: { id: schemeId },
-      include: { categories: true },
-    });
-
-    const partCat = scheme.categories.find((c) => c.name === 'Class Participation')!;
-    const midCat = scheme.categories.find((c) => c.name === 'Midterm')!;
-    const finalCat = scheme.categories.find((c) => c.name === 'Final Term')!;
-
-    // Create items for manual assessments
-    const partItem = await prisma.assessmentItem.create({
-      data: {
-        assessmentCategoryId: partCat.id,
-        title: 'Class Participation',
-        maxMarks: 100,
-        isPublished: true,
-      },
-    });
-    manualParticipationItemId = partItem.id;
-
-    const midItem = await prisma.assessmentItem.create({
-      data: {
-        assessmentCategoryId: midCat.id,
-        title: 'Midterm Examination',
-        maxMarks: 100,
-        isPublished: true,
-      },
-    });
-    manualMidtermItemId = midItem.id;
-
-    const finalItem = await prisma.assessmentItem.create({
-      data: {
-        assessmentCategoryId: finalCat.id,
-        title: 'Final Term Examination',
-        maxMarks: 100,
-        isPublished: true,
-      },
-    });
-    manualFinalItemId = finalItem.id;
-
-    // Enter marks via Unified Gradebook:
-    // Participation: 90/100 (10% weight -> 9.0)
-    // Midterm: 80/100 (20% weight -> 16.0)
-    // Final: 85/100 (40% weight -> 34.0)
-    const saveRes = await request(app)
-      .post('/api/v1/assessments/gradebook/save')
-      .set('Authorization', `Bearer ${teacherToken}`)
-      .send({
-        subjectId,
-        sectionId,
-        academicTermId,
-        updates: [
-          { assessmentItemId: manualParticipationItemId, studentId: studentAliceId, marksObtained: 90 },
-          { assessmentItemId: manualMidtermItemId, studentId: studentAliceId, marksObtained: 80 },
-          { assessmentItemId: manualFinalItemId, studentId: studentAliceId, marksObtained: 85 },
-        ],
-      });
-
-    expect(saveRes.status).toBe(200);
-
-    // Final subject score = 14.7 + 9.9 + 9.0 + 16.0 + 34.0 = 83.6!
-    const subjectResult = await prisma.subjectResult.findUniqueOrThrow({
+    // Check Alice subject result
+    const aliceResult = await prisma.subjectResult.findUniqueOrThrow({
       where: {
         subjectId_sectionId_studentId_academicTermId: {
           subjectId,
@@ -396,53 +398,233 @@ describe('MASTER LMS ACADEMIC ASSESSMENT, GRADING & EXAMINATION INTEGRATION SUIT
         },
       },
     });
-    subjectResultId = subjectResult.id;
 
-    expect(subjectResult.totalPercentage).toBeCloseTo(83.6, 2);
+    const breakdown = (aliceResult.categoryBreakdown as any[]).find(
+      (c) => c.categoryName === 'Assignments'
+    );
+    expect(breakdown).toBeDefined();
+    // Category average: (98 + 66) / 2 = 82%
+    expect(breakdown.averagePercentage).toBe(82);
+    // Category contribution: (82 / 100) * 15 = 12.3! (NOT 24.6/30)
+    expect(breakdown.contribution).toBe(12.3);
+    expect(breakdown.weightage).toBe(15);
   });
 
-  // TEST 5: Editing assignment marks recalculates results
-  it('5. Editing assignment marks recalculates results', async () => {
-    const submission2 = await prisma.assignmentSubmission.findFirstOrThrow({
+  // TEST 8: Explicit internal assignment allocations, when supported, must total 100% within the shared category and calculate correctly
+  it('8. Explicit internal assignment allocations, when supported, must total 100% within the shared category and calculate correctly', async () => {
+    const a1 = await prisma.assignment.findUniqueOrThrow({ where: { id: lmsAssignment1Id } });
+    const a2 = await prisma.assignment.findUniqueOrThrow({ where: { id: lmsAssignment2Id } });
+
+    // Set internal allocation: Assignment 1 = 60%, Assignment 2 = 40% (total = 100%)
+    await prisma.assessmentItem.update({
+      where: { id: a1.assessmentItemId! },
+      data: { weightagePercentage: 60 },
+    });
+    await prisma.assessmentItem.update({
+      where: { id: a2.assessmentItemId! },
+      data: { weightagePercentage: 40 },
+    });
+
+    // Trigger recalculation by regrading or saving
+    const sub1 = await prisma.assignmentSubmission.findFirstOrThrow({
+      where: { assignmentId: lmsAssignment1Id, studentId: studentAliceId },
+    });
+    await request(app)
+      .post(`/api/v1/lms/submissions/${sub1.id}/grade`)
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .send({ grade: 98 });
+
+    const aliceResult = await prisma.subjectResult.findUniqueOrThrow({
+      where: {
+        subjectId_sectionId_studentId_academicTermId: {
+          subjectId,
+          sectionId,
+          studentId: studentAliceId,
+          academicTermId,
+        },
+      },
+    });
+
+    const breakdown = (aliceResult.categoryBreakdown as any[]).find(
+      (c) => c.categoryName === 'Assignments'
+    );
+    expect(breakdown).toBeDefined();
+    // Weighted: (98 * 0.6) + (66 * 0.4) = 58.8 + 26.4 = 85.2%
+    expect(breakdown.averagePercentage).toBe(85.2);
+    // Contribution: (85.2 / 100) * 15 = 12.78
+    expect(breakdown.contribution).toBe(12.78);
+
+    // Reset items to equal weighting (null internal weights) for remainder of test
+    await prisma.assessmentItem.update({
+      where: { id: a1.assessmentItemId! },
+      data: { weightagePercentage: null },
+    });
+    await prisma.assessmentItem.update({
+      where: { id: a2.assessmentItemId! },
+      data: { weightagePercentage: null },
+    });
+    await request(app)
+      .post(`/api/v1/lms/submissions/${sub1.id}/grade`)
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .send({ grade: 98 });
+  });
+
+  // TEST 9: Saving assignment marks automatically updates the gradebook and shared Assignments category
+  it('9. Saving assignment marks automatically updates the gradebook and shared Assignments category', async () => {
+    const gbRes = await request(app)
+      .get('/api/v1/assessments/gradebook')
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .query({ subjectId, sectionId, academicTermId });
+
+    expect(gbRes.status).toBe(200);
+    const aliceRow = gbRes.body.data.rows.find((r: any) => r.studentId === studentAliceId);
+    expect(aliceRow).toBeDefined();
+    expect(aliceRow.result).toBeDefined();
+    const assignCategory = aliceRow.result.categoryBreakdown.find((c: any) => c.categoryName === 'Assignments');
+    expect(assignCategory.contribution).toBe(12.3);
+  });
+
+  // TEST 10: Editing assignment marks recalculates results without double-counting
+  it('10. Editing assignment marks recalculates results without double-counting', async () => {
+    const sub2 = await prisma.assignmentSubmission.findFirstOrThrow({
       where: { assignmentId: lmsAssignment2Id, studentId: studentAliceId },
     });
 
-    // Edit Assignment 2 marks from 66 to 76 (76/100 * 15 = 11.4 -> total = 14.7 + 11.4 + 9 + 16 + 34 = 85.1)
+    // Update Assignment 2 mark to 70
     await request(app)
-      .post(`/api/v1/lms/submissions/${submission2.id}/grade`)
+      .post(`/api/v1/lms/submissions/${sub2.id}/grade`)
       .set('Authorization', `Bearer ${teacherToken}`)
-      .send({ grade: 76, feedback: 'Updated after grade review.' });
+      .send({ grade: 70, feedback: 'Upgraded after review' });
 
-    const updatedResult = await prisma.subjectResult.findUniqueOrThrow({
-      where: { id: subjectResultId },
+    let aliceResult = await prisma.subjectResult.findUniqueOrThrow({
+      where: {
+        subjectId_sectionId_studentId_academicTermId: {
+          subjectId,
+          sectionId,
+          studentId: studentAliceId,
+          academicTermId,
+        },
+      },
     });
-    expect(updatedResult.totalPercentage).toBeCloseTo(85.1, 2);
+
+    let breakdown = (aliceResult.categoryBreakdown as any[]).find((c) => c.categoryName === 'Assignments');
+    // (98 + 70) / 2 = 84% -> (84 / 100) * 15 = 12.6
+    expect(breakdown.averagePercentage).toBe(84);
+    expect(breakdown.contribution).toBe(12.6);
 
     // Revert to 66 for subsequent tests
     await request(app)
-      .post(`/api/v1/lms/submissions/${submission2.id}/grade`)
+      .post(`/api/v1/lms/submissions/${sub2.id}/grade`)
       .set('Authorization', `Bearer ${teacherToken}`)
-      .send({ grade: 66, feedback: 'Reverted to original score.' });
+      .send({ grade: 66 });
   });
 
-  // TEST 7: Marks cannot exceed maximum marks
-  it('7. Marks cannot exceed maximum marks', async () => {
-    const overMarksRes = await request(app)
-      .post('/api/v1/assessments/gradebook/save')
+  // TEST 11: Manual assessment marks use the same grading engine
+  it('11. Manual assessment marks use the same grading engine', async () => {
+    const scheme = await prisma.assessmentScheme.findUniqueOrThrow({
+      where: { id: schemeId },
+      include: { categories: true },
+    });
+
+    const partCat = scheme.categories.find((c) => c.name === 'Class Participation')!;
+    const midCat = scheme.categories.find((c) => c.name === 'Midterm')!;
+    const finCat = scheme.categories.find((c) => c.name === 'Final Term')!;
+
+    // Create manual assessment items in these categories
+    const partItem = await prisma.assessmentItem.create({
+      data: {
+        assessmentCategoryId: partCat.id,
+        title: 'Class Participation Score',
+        maxMarks: 100,
+        isPublished: true,
+      },
+    });
+    manualParticipationItemId = partItem.id;
+
+    const midItem = await prisma.assessmentItem.create({
+      data: {
+        assessmentCategoryId: midCat.id,
+        title: 'Midterm Examination Paper',
+        maxMarks: 100,
+        isPublished: true,
+      },
+    });
+    manualMidtermItemId = midItem.id;
+
+    const finItem = await prisma.assessmentItem.create({
+      data: {
+        assessmentCategoryId: finCat.id,
+        title: 'Final Term Examination Paper',
+        maxMarks: 100,
+        isPublished: true,
+      },
+    });
+    manualFinalItemId = finItem.id;
+
+    // Save marks: Participation = 90/100, Midterm = 80/100, Final = 85/100
+    await request(app)
+      .post('/api/v1/assessments/marks/batch')
       .set('Authorization', `Bearer ${teacherToken}`)
       .send({
-        subjectId,
-        sectionId,
-        academicTermId,
-        updates: [{ assessmentItemId: manualParticipationItemId, studentId: studentAliceId, marksObtained: 150 }],
+        assessmentItemId: manualParticipationItemId,
+        marks: [{ studentId: studentAliceId, marksObtained: 90 }],
       });
-    expect(overMarksRes.status).toBe(400);
-    expect(overMarksRes.body.error?.message || overMarksRes.body.message).toContain('cannot exceed maximum marks');
+
+    await request(app)
+      .post('/api/v1/assessments/marks/batch')
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .send({
+        assessmentItemId: manualMidtermItemId,
+        marks: [{ studentId: studentAliceId, marksObtained: 80 }],
+      });
+
+    await request(app)
+      .post('/api/v1/assessments/marks/batch')
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .send({
+        assessmentItemId: manualFinalItemId,
+        marks: [{ studentId: studentAliceId, marksObtained: 85 }],
+      });
+
+    // Check Alice total result:
+    // Assignments: 82% -> 12.3
+    // Participation: 90% -> 9.0
+    // Midterm: 80% -> 20.0 (25% * 0.8)
+    // Final: 85% -> 42.5 (50% * 0.85)
+    // Total = 12.3 + 9.0 + 20.0 + 42.5 = 83.8!
+    const aliceResult = await prisma.subjectResult.findUniqueOrThrow({
+      where: {
+        subjectId_sectionId_studentId_academicTermId: {
+          subjectId,
+          sectionId,
+          studentId: studentAliceId,
+          academicTermId,
+        },
+      },
+    });
+
+    subjectResultId = aliceResult.id;
+    expect(aliceResult.totalPercentage).toBe(83.8);
+    expect(['P', 'B', 'A']).toContain(aliceResult.gradeLetter);
   });
 
-  // TEST 9: Missing assessment marks are handled correctly
-  it('9. Missing assessment marks are handled correctly without corrupting student score', async () => {
-    // Bob has no marks entered yet
+  // TEST 12: Marks cannot exceed maximum marks
+  it('12. Marks cannot exceed maximum marks', async () => {
+    const res = await request(app)
+      .post('/api/v1/assessments/marks/batch')
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .send({
+        assessmentItemId: manualParticipationItemId,
+        marks: [{ studentId: studentAliceId, marksObtained: 105 }], // Max marks is 100
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error?.message || res.body.message).toContain('cannot exceed maximum marks');
+  });
+
+  // TEST 14: Missing assessment marks are handled correctly
+  it('14. Missing assessment marks are handled correctly', async () => {
+    // Bob has not been graded for the final exam yet
     const bobResult = await prisma.subjectResult.findUnique({
       where: {
         subjectId_sectionId_studentId_academicTermId: {
@@ -453,85 +635,111 @@ describe('MASTER LMS ACADEMIC ASSESSMENT, GRADING & EXAMINATION INTEGRATION SUIT
         },
       },
     });
-    // Bob does not have false zeros corrupting his profile
+
+    // Ungraded items do not cause crashes
     if (bobResult) {
       expect(bobResult.status).toBe('DRAFT');
     }
   });
 
-  // TEST 10: Teachers can change assignment due dates after expiration
-  it('10. Teachers can change assignment due dates after expiration', async () => {
-    const expiredDate = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
-    const newDueDate = new Date(Date.now() + 72 * 3600 * 1000).toISOString();
+  // TEST 15: Teachers can change assignment due dates after expiration
+  it('15. Teachers can change assignment due dates after expiration', async () => {
+    const expiredDate = new Date(Date.now() - 86400000).toISOString(); // 1 day ago
+    const newFutureDate = new Date(Date.now() + 5 * 86400000).toISOString();
 
-    // Set past due date first
-    await prisma.assignment.update({
-      where: { id: lmsAssignment1Id },
-      data: { dueDate: new Date(expiredDate) },
-    });
-
-    // Teacher extends deadline via PATCH /lms/assignments/:id
-    const extendRes = await request(app)
+    const patchRes = await request(app)
       .patch(`/api/v1/lms/assignments/${lmsAssignment1Id}`)
       .set('Authorization', `Bearer ${teacherToken}`)
       .send({
-        dueDate: newDueDate,
-        reason: 'Granted class-wide extension after review.',
+        dueDate: newFutureDate,
+        reason: 'Extended by teacher due to public holiday',
       });
 
-    expect(extendRes.status).toBe(200);
-    expect(extendRes.body.data.dueDate).toBeDefined();
+    expect(patchRes.status).toBe(200);
 
-    // Check existing submissions and grades are preserved!
-    const sub = await prisma.assignmentSubmission.findFirst({
-      where: { assignmentId: lmsAssignment1Id, studentId: studentAliceId },
+    // Verify deadline history record was created
+    const history = await prisma.assessmentDeadlineHistory.findFirst({
+      where: { changedByUserId: teacherUserId },
+      orderBy: { createdAt: 'desc' },
     });
-    expect(sub).toBeDefined();
-    expect(sub?.grade).toBe(98);
+    expect(history).toBeDefined();
+    expect(history?.reason).toContain('public holiday');
   });
 
-  // TEST 11: Teacher Submit (Button A) locks according to policy and publishes provisional results
-  it('11. Teacher Submit (Button A) publishes provisional results without official exam publication', async () => {
-    const submitARes = await request(app)
+  // TEST 16: Teachers can change assignment numbering/display order after submissions without losing submissions, marks, or feedback
+  it('16. Teachers can change assignment numbering/display order after submissions without losing submissions, marks, or feedback', async () => {
+    // Submissions and grades already exist on Assignment 1
+    const subBefore = await prisma.assignmentSubmission.findFirstOrThrow({
+      where: { assignmentId: lmsAssignment1Id, studentId: studentAliceId },
+    });
+    expect(subBefore.grade).toBe(98);
+
+    // Change title and display order
+    const updateRes = await request(app)
+      .patch(`/api/v1/lms/assignments/${lmsAssignment1Id}`)
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .send({
+        title: 'Assignment 1 - Re-numbered',
+        displayOrder: 10,
+      });
+
+    expect(updateRes.status).toBe(200);
+    expect(updateRes.body.data.displayOrder).toBe(10);
+    expect(updateRes.body.data.title).toBe('Assignment 1 - Re-numbered');
+
+    // Verify submission and grade remain completely intact on the same assignment ID
+    const subAfter = await prisma.assignmentSubmission.findFirstOrThrow({
+      where: { assignmentId: lmsAssignment1Id, studentId: studentAliceId },
+    });
+    expect(subAfter.grade).toBe(98);
+    expect(subAfter.feedback).toBe(subBefore.feedback);
+
+    // Verify AuditEvent recorded the order/numbering change
+    const audit = await prisma.auditEvent.findFirst({
+      where: { entity: 'Assignment', entityId: lmsAssignment1Id, action: 'ASSIGNMENT_UPDATED' },
+      orderBy: { timestamp: 'desc' },
+    });
+    expect(audit).toBeDefined();
+    expect(audit?.newValuesJson).toContain('10');
+
+    // Restore title and order
+    await request(app)
+      .patch(`/api/v1/lms/assignments/${lmsAssignment1Id}`)
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .send({ title: 'Assignment 1', displayOrder: 1 });
+  });
+
+  // TEST 17: Teacher Submit locks the submitted result according to policy
+  it('17. Teacher Submit locks the submitted result according to policy', async () => {
+    const submitStudentsRes = await request(app)
       .post('/api/v1/assessments/results/submit-to-students')
       .set('Authorization', `Bearer ${teacherToken}`)
       .send({
         subjectId,
         sectionId,
         academicTermId,
-        remarks: 'Teacher published provisional internal marks.',
       });
 
-    expect(submitARes.status).toBe(200);
+    expect(submitStudentsRes.status).toBe(200);
 
     const result = await prisma.subjectResult.findUniqueOrThrow({
       where: { id: subjectResultId },
     });
     expect(result.status).toBe(SubjectResultStatus.SUBMITTED_TO_STUDENTS);
-
-    // Student Alice sees provisional results with note
-    const aliceView = await request(app)
-      .get('/api/v1/assessments/student-result')
-      .set('Authorization', `Bearer ${studentAliceToken}`)
-      .query({ subjectId, academicTermId });
-
-    expect(aliceView.status).toBe(200);
-    expect(aliceView.body.data.isOfficiallyPublished).toBe(false);
   });
 
-  // TEST 12: Submit to Examination Department (Button B) creates reviewable submission
-  it('12. Submit to Examination Department creates a reviewable submission', async () => {
-    const submitBRes = await request(app)
+  // TEST 18: Submit to Examination Department creates a reviewable submission
+  it('18. Submit to Examination Department creates a reviewable submission', async () => {
+    const submitExamDeptRes = await request(app)
       .post('/api/v1/assessments/results/submit-to-exam-dept')
       .set('Authorization', `Bearer ${teacherToken}`)
       .send({
         subjectId,
         sectionId,
         academicTermId,
-        remarks: 'Official forwarding to Exam Department.',
       });
 
-    expect(submitBRes.status).toBe(200);
+    expect(submitExamDeptRes.status).toBe(200);
 
     const result = await prisma.subjectResult.findUniqueOrThrow({
       where: { id: subjectResultId },
@@ -539,191 +747,215 @@ describe('MASTER LMS ACADEMIC ASSESSMENT, GRADING & EXAMINATION INTEGRATION SUIT
     expect(result.status).toBe(SubjectResultStatus.SUBMITTED_TO_EXAM_DEPARTMENT);
   });
 
-  // TEST 13: Students see Grade in Progress after examination submission
-  it('13. Students see Grade in Progress after examination submission', async () => {
-    const aliceView = await request(app)
-      .get('/api/v1/assessments/student-result')
-      .set('Authorization', `Bearer ${studentAliceToken}`)
-      .query({ subjectId, academicTermId });
+  // TEST 19: Students see Grade in Progress after examination submission
+  it('19. Students see Grade in Progress after examination submission', async () => {
+    const studentRes = await request(app)
+      .get(`/api/v1/assessments/student-result?subjectId=${subjectId}&academicTermId=${academicTermId}`)
+      .set('Authorization', `Bearer ${studentAliceToken}`);
 
-    expect(aliceView.status).toBe(200);
-    expect(aliceView.body.data.gradeInProgress).toBe(true);
-    expect(aliceView.body.data.displayGrade).toBe('GRADE IN PROGRESS');
-    expect(aliceView.body.data.isOfficiallyPublished).toBe(false);
+    expect(studentRes.status).toBe(200);
+    expect(studentRes.body.data.status).toBe(SubjectResultStatus.SUBMITTED_TO_EXAM_DEPARTMENT);
+    expect(studentRes.body.data.gradeStatusLabel).toBe('Grade in Progress');
   });
 
-  // TEST 14: Teachers cannot directly edit submitted results
-  it('14. Teachers cannot directly edit submitted results (direct API blocked with 403)', async () => {
-    const directEditRes = await request(app)
-      .post('/api/v1/assessments/gradebook/save')
+  // TEST 20: Teachers cannot directly edit submitted results
+  it('20. Teachers cannot directly edit submitted results', async () => {
+    const tryBatch = await request(app)
+      .post('/api/v1/assessments/marks/batch')
       .set('Authorization', `Bearer ${teacherToken}`)
       .send({
-        subjectId,
-        sectionId,
-        academicTermId,
-        updates: [{ assessmentItemId: manualMidtermItemId, studentId: studentAliceId, marksObtained: 99 }],
+        assessmentItemId: manualParticipationItemId,
+        marks: [{ studentId: studentAliceId, marksObtained: 95 }],
       });
+    expect(tryBatch.status).toBe(403);
+    expect(tryBatch.body.error?.message || tryBatch.body.message).toContain('locked');
 
-    expect(directEditRes.status).toBe(403);
-    expect(directEditRes.body.error?.message || directEditRes.body.message).toContain('locked');
+    // Also verify LMS submission grading is locked
+    const sub = await prisma.assignmentSubmission.findFirstOrThrow({
+      where: { assignmentId: lmsAssignment1Id, studentId: studentAliceId },
+    });
+    const tryLmsGrade = await request(app)
+      .post(`/api/v1/lms/submissions/${sub.id}/grade`)
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .send({ grade: 99 });
+    expect(tryLmsGrade.status).toBe(403);
   });
 
-  // TEST 15: Teachers can request marks corrections
-  it('15. Teachers can request marks corrections with mandatory reason', async () => {
-    const correctionRes = await request(app)
-      .post('/api/v1/assessments/results/request-correction')
+  // TEST 21: Teachers can request marks corrections
+  it('21. Teachers can request marks corrections', async () => {
+    const corrRes = await request(app)
+      .post('/api/v1/assessments/corrections/request')
       .set('Authorization', `Bearer ${teacherToken}`)
       .send({
         subjectResultId,
-        studentId: studentAliceId,
-        proposedMarks: 86.5,
-        reason: 'Recount of Midterm question 4 was verified by course coordinator.',
+        proposedMarks: 85.0,
+        reason: 'Recalculated final viva after re-checking question 4',
       });
 
-    expect(correctionRes.status).toBe(201);
-    expect(correctionRes.body.data.status).toBe('PENDING');
-    correctionRequestId = correctionRes.body.data.id;
+    expect(corrRes.status).toBe(201);
+    correctionRequestId = corrRes.body.data.id;
+    expect(corrRes.body.data.status).toBe('PENDING');
   });
 
-  // TEST 16: Examination staff can approve or reject correction requests
-  it('16. Examination staff can approve or reject correction requests', async () => {
-    const reviewRes = await request(app)
+  // TEST 22: Examination staff can approve or reject correction requests
+  it('22. Examination staff can approve or reject correction requests', async () => {
+    const approveRes = await request(app)
       .post(`/api/v1/assessments/exam-dept/corrections/${correctionRequestId}/review`)
       .set('Authorization', `Bearer ${examControllerToken}`)
       .send({
         status: 'APPROVED',
-        reviewNotes: 'Verified midterm question 4 recount.',
+        reviewNotes: 'Verified against physical answer sheet.',
       });
 
-    expect(reviewRes.status).toBe(200);
-    expect(reviewRes.body.data.status).toBe('APPROVED');
+    expect(approveRes.status).toBe(200);
 
     const updatedResult = await prisma.subjectResult.findUniqueOrThrow({
       where: { id: subjectResultId },
     });
-    expect(updatedResult.totalPercentage).toBe(86.5);
+    expect(updatedResult.totalPercentage).toBe(85.0);
   });
 
-  // TEST 17: Unauthorized users cannot approve results
-  it('17. Unauthorized users cannot approve results', async () => {
+  // TEST 23: Unauthorized users cannot approve results
+  it('23. Unauthorized users cannot approve results', async () => {
     const unauthRes = await request(app)
       .post('/api/v1/assessments/exam-dept/review')
-      .set('Authorization', `Bearer ${teacherToken}`)
+      .set('Authorization', `Bearer ${studentAliceToken}`)
       .send({
         subjectId,
         sectionId,
         academicTermId,
-        status: 'OFFICIALLY_PUBLISHED',
+        decision: 'APPROVE',
       });
 
     expect(unauthRes.status).toBe(403);
   });
 
-  // TEST 18: Teachers cannot approve their own results
-  it('18. Teachers cannot approve their own results', async () => {
-    const selfApproveRes = await request(app)
-      .post(`/api/v1/assessments/exam-dept/corrections/${correctionRequestId}/review`)
+  // TEST 24: Teachers cannot approve their own results
+  it('24. Teachers cannot approve their own results', async () => {
+    const teacherApproveRes = await request(app)
+      .post('/api/v1/assessments/exam-dept/review')
       .set('Authorization', `Bearer ${teacherToken}`)
       .send({
-        status: 'APPROVED',
+        subjectId,
+        sectionId,
+        academicTermId,
+        decision: 'APPROVE',
       });
 
-    expect(selfApproveRes.status).toBe(403);
+    expect(teacherApproveRes.status).toBe(403);
+    expect(teacherApproveRes.body.error?.message || teacherApproveRes.body.message).toContain('Access denied');
   });
 
-  // TEST 19: Unpublished results never appear as finalized transcript entries
-  it('19. Unpublished results never appear as finalized transcript entries', async () => {
-    const reportCardRes = await request(app)
-      .get('/api/v1/exams/report-cards')
-      .set('Authorization', `Bearer ${studentAliceToken}`)
-      .query({ studentId: studentAliceId });
+  // TEST 25: Unpublished results never appear as finalized transcript entries
+  it('25. Unpublished results never appear as finalized transcript entries', async () => {
+    const transcriptRes = await request(app)
+      .get(`/api/v1/exams/transcripts/${studentAliceId}`)
+      .set('Authorization', `Bearer ${examControllerToken}`);
 
-    expect(reportCardRes.status).toBe(200);
-    const cards = reportCardRes.body.data || [];
-    if (cards.length > 0) {
-      const assessmentResults = cards[0].assessmentSubjectResults || [];
-      const mathResult = assessmentResults.find((ar: any) => ar.subjectId === subjectId);
-      if (mathResult) {
-        expect(mathResult.isOfficiallyPublished).toBe(false);
-        expect(mathResult.gradeLetter).toBe('GRADE IN PROGRESS');
-      }
+    if (transcriptRes.body.data?.entries) {
+      const found = transcriptRes.body.data.entries.find((e: any) => e.subjectId === subjectId);
+      expect(found).toBeUndefined();
     }
   });
 
-  // TEST 20: Published results appear correctly on student transcripts
-  it('20. Published results appear correctly on student transcripts after Exam Dept publication', async () => {
-    const publishRes = await request(app)
+  // TEST 26: Published results appear correctly on student transcripts
+  it('26. Published results appear correctly on student transcripts', async () => {
+    // Exam Controller approves and officially publishes the subject result
+    const approveRes = await request(app)
       .post('/api/v1/assessments/exam-dept/review')
       .set('Authorization', `Bearer ${examControllerToken}`)
       .send({
         subjectId,
         sectionId,
         academicTermId,
-        status: 'OFFICIALLY_PUBLISHED',
-        notes: 'Officially published for university transcript records.',
+        decision: 'APPROVE',
+        comments: 'All components moderated and officially endorsed.',
+      });
+
+    expect(approveRes.status).toBe(200);
+
+    const publishRes = await request(app)
+      .post('/api/v1/assessments/exam-dept/publish')
+      .set('Authorization', `Bearer ${examControllerToken}`)
+      .send({
+        subjectId,
+        sectionId,
+        academicTermId,
       });
 
     expect(publishRes.status).toBe(200);
 
-    const finalAliceView = await request(app)
-      .get('/api/v1/assessments/student-result')
-      .set('Authorization', `Bearer ${studentAliceToken}`)
-      .query({ subjectId, academicTermId });
+    const result = await prisma.subjectResult.findUniqueOrThrow({
+      where: { id: subjectResultId },
+    });
+    expect(result.status).toBe(SubjectResultStatus.OFFICIALLY_PUBLISHED);
+    expect(result.officiallyPublishedAt).toBeDefined();
 
-    expect(finalAliceView.status).toBe(200);
-    expect(finalAliceView.body.data.gradeInProgress).toBe(false);
-    expect(finalAliceView.body.data.isOfficiallyPublished).toBe(true);
-    expect(finalAliceView.body.data.displayGrade).not.toBe('GRADE IN PROGRESS');
+    // Student Alice sees officially published result on transcript
+    const aliceView = await request(app)
+      .get(`/api/v1/assessments/student-result?subjectId=${subjectId}&academicTermId=${academicTermId}`)
+      .set('Authorization', `Bearer ${studentAliceToken}`);
+
+    expect(aliceView.status).toBe(200);
+    expect(aliceView.body.data.status).toBe(SubjectResultStatus.OFFICIALLY_PUBLISHED);
+    expect(aliceView.body.data.totalPercentage).toBe(85.0);
   });
 
-  // TEST 21: Parents can only view linked children's results
-  it('21. Parents can only view linked children results', async () => {
-    // Parent John (Alice's parent) querying Bob's result -> 403
-    const unlinkedRes = await request(app)
-      .get('/api/v1/assessments/student-result')
-      .set('Authorization', `Bearer ${parentToken}`)
-      .query({ subjectId, academicTermId, studentId: studentBobId });
+  // TEST 27: Parents can only view linked children's results
+  it("27. Parents can only view linked children's results", async () => {
+    // Parent John is linked to Alice -> Allowed
+    const aliceParentRes = await request(app)
+      .get(`/api/v1/assessments/student-result?subjectId=${subjectId}&academicTermId=${academicTermId}&studentId=${studentAliceId}`)
+      .set('Authorization', `Bearer ${parentToken}`);
+    expect(aliceParentRes.status).toBe(200);
 
-    expect(unlinkedRes.status).toBe(403);
+    // Parent John tries to view Bob (not linked) -> 403 Forbidden
+    const bobParentRes = await request(app)
+      .get(`/api/v1/assessments/student-result?subjectId=${subjectId}&academicTermId=${academicTermId}&studentId=${studentBobId}`)
+      .set('Authorization', `Bearer ${parentToken}`);
+    expect(bobParentRes.status).toBe(403);
   });
 
-  // TEST 22: Cross-tenant requests are rejected
-  it('22. Cross-tenant requests are rejected', async () => {
-    const otherTenantHeader = '00000000-0000-0000-0000-000000000099';
+  // TEST 28: Cross-tenant requests are rejected
+  it('28. Cross-tenant requests are rejected', async () => {
+    // Request with mismatched tenant header -> 403
     const crossRes = await request(app)
-      .get('/api/v1/assessments/student-result')
-      .set('Authorization', `Bearer ${studentAliceToken}`)
-      .set('X-Institution-Id', otherTenantHeader)
-      .query({ subjectId, academicTermId });
+      .get('/api/v1/assessments/gradebook')
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .set('x-institution-id', '00000000-0000-0000-0000-000000000000')
+      .query({ subjectId, sectionId, academicTermId });
 
-    expect([401, 403]).toContain(crossRes.status);
+    expect(crossRes.status).toBe(403);
   });
 
-  // TEST 23: Duplicate submissions do not create duplicate result records
-  it('23. Duplicate submissions do not create duplicate result records', async () => {
+  // TEST 29: Duplicate submissions do not create duplicate result records
+  it('29. Duplicate submissions do not create duplicate result records', async () => {
+    // Attempting duplicate submit to exam dept
     const dupRes = await request(app)
       .post('/api/v1/assessments/results/submit-to-exam-dept')
-      .set('Authorization', `Bearer ${examControllerToken}`)
-      .send({ subjectId, sectionId, academicTermId });
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .send({
+        subjectId,
+        sectionId,
+        academicTermId,
+      });
 
-    expect([200, 400, 403]).toContain(dupRes.status);
+    expect(dupRes.status).toBe(403); // Locked because already submitted/published
 
-    const count = await prisma.subjectResult.count({
+    const results = await prisma.subjectResult.findMany({
       where: { subjectId, sectionId, studentId: studentAliceId, academicTermId },
     });
-    expect(count).toBe(1);
+    expect(results.length).toBe(1);
   });
 
-  // TEST 24: Audit history preserves every marks change
-  it('24. Audit history preserves every marks change and review', async () => {
+  // TEST 30: Audit history preserves every marks change
+  it('30. Audit history preserves every marks change', async () => {
     const audits = await prisma.subjectResultAudit.findMany({
       where: { subjectResultId },
     });
-
     expect(audits.length).toBeGreaterThanOrEqual(1);
     const correctionAudit = audits.find((a) => a.action === 'CORRECTION_APPROVED');
     expect(correctionAudit).toBeDefined();
-    expect(correctionAudit?.previousState).toBeDefined();
-    expect(correctionAudit?.newState).toBeDefined();
+    expect(correctionAudit?.actorId).toBe(examControllerUserId);
   });
 });

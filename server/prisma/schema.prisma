@@ -632,6 +632,7 @@ model Assignment {
   dueDate              DateTime
   allowLateSubmissions Boolean  @default(true)
   latePenaltyPercent   Float    @default(0)
+  displayOrder         Int      @default(1)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
@@ -1031,6 +1032,7 @@ model AssessmentItem {
   maxMarks             Float     @default(100)
   weight               Float     @default(1)
   weightagePercentage  Float?
+  displayOrder         Int       @default(1)
   assessmentDate       DateTime?
   dueDate              DateTime?
   isPublished          Boolean   @default(false)

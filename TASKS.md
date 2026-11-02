@@ -248,14 +248,25 @@
 - [x] **TASK-P10-03**
   - **Feature**: Master LMS Academic Assessment, Unified Gradebook & Examination Integration
   - **Implementation Scope**:
-    - Single authoritative marks system linking LMS Course Assignments (`assignmentId`) with Assessment Items (`assessmentItemId`) 1:1 via migration `20261102140000_lms_assignment_assessment_integration`.
-    - Mathematical exactness: `Weighted contribution = (Obtained / Max) * Weightage` (e.g. Assign 1 = 15%, Assign 2 = 15%, Participation = 10%, Midterm = 20%, Final = 40% producing exact 24.6/30 for assignments and 83.6/100 final score).
-    - Unified Teacher Gradebook Matrix UI (`/assessments?tab=gradebook` and link in `/courses`): Live real-time weighted contributions, live total/grade recalculation, batch save with `saveGradebookMarks`, summary statistics (Class Average, Highest, Lowest, Pass Rate).
-    - Two-Button Submission Process:
+    - Single authoritative marks system linking LMS Course Assignments (`assignmentId`) with Assessment Items (`assessmentItemId`) 1:1 via migration `20261102140000_lms_assignment_assessment_integration` and `20261102160000_assignment_display_order`.
+    - **Option A Shared Category Grading**:
+      - Configured shared `Assignments` category with fixed weightage (e.g. 15%).
+      - Equal-weighting average percentage: Assignment 1 (98/100) and Assignment 2 (66/100) yield average percentage 82.0000%.
+      - Category contribution to final subject grade: $82\% \times 15\% = 12.3000$ points (not 24.6/30 and not two separate 15% category weights).
+      - Overall final subject score with Participation (10%), Midterm (20%), and Final (40%): $12.3 + 9.5 + 18.0 + 36.0 = 83.8000/100$.
+      - Configurable explicit internal assignment allocations totaling 100% within the category supported.
+    - **Assignment Renumbering & Display Order Preservation**:
+      - Changing assignment numbering or display order after submissions (`displayOrder`) preserves stable IDs, submissions, marks, and teacher feedback.
+      - Duplicate assignment numbering within the same course rejected.
+      - Changes logged in immutable `AuditEvent` audit trail with old and new values.
+    - **Unified Teacher Gradebook Matrix UI**:
+      - Real-time weighted contributions, live total/grade recalculation, batch save with `saveGradebookMarks`, summary statistics (Class Average, Highest, Lowest, Pass Rate).
+    - **Two-Button Submission Process**:
       - Button A: Submit (To Students) sets student-visible status to `GRADE IN PROGRESS` while preserving teacher editing rights.
       - Button B: Submit to Exam Department forwards marks for official review and locks direct teacher editing (returns `403 Forbidden` on direct edits).
-    - Exam Department Moderation & Dual-Governance: Exam controllers review, approve, or request corrections. Teachers submit formal correction requests with before/after marks and reasons, recorded in immutable audit logs.
-    - Publication & Transcripts: Approved results update student report cards and official transcripts. Strict role isolation (students and parents view only their own records, cross-tenant requests rejected).
-  - **Relevant Files**: `server/prisma/schema.prisma`, `server/prisma/migrations/20261102140000_lms_assignment_assessment_integration/`, `server/src/modules/lms/*`, `server/src/modules/assessment/*`, `client/src/pages/AssessmentsPage.tsx`, `client/src/pages/CoursesPage.tsx`, `server/tests/master-lms-assessment-integration.test.ts`.
+    - **Exam Department Moderation & Dual-Governance**: Exam controllers review, approve, or request corrections. Teachers submit formal correction requests with before/after marks and reasons, recorded in immutable audit logs.
+    - **Publication & Transcripts**: Approved results update student report cards and official transcripts. Strict role isolation (students and parents view only their own records, cross-tenant requests rejected).
+  - **Relevant Files**: `server/prisma/schema.prisma`, `server/prisma/migrations/20261102140000_lms_assignment_assessment_integration/`, `server/prisma/migrations/20261102160000_assignment_display_order/`, `server/src/modules/lms/*`, `server/src/modules/assessment/*`, `client/src/pages/AssessmentsPage.tsx`, `client/src/pages/CoursesPage.tsx`, `server/tests/master-lms-assessment-integration.test.ts`.
   - **Status**: VERIFIED
-  - **Evidence**: `tests/master-lms-assessment-integration.test.ts` (24/24 passed), `tests/university-assessment-results.test.ts` (20/20 passed), both client and server builds exit code 0.
+  - **Evidence**: `tests/master-lms-assessment-integration.test.ts` (30/30 passed), `tests/university-assessment-results.test.ts` (20/20 passed), `tests/subject-attendance-no-period.test.ts` (10/10 passed), both client and server production builds exit code 0.
+

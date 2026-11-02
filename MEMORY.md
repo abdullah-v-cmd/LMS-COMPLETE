@@ -199,13 +199,18 @@ d:\lms2/
 - **Period-Based Attendance Removal**:
   - Successfully removed all period-based attendance requirements from the schema and application.
   - Subject teachers mark daily attendance directly for their assigned subject, class, section, and date with duplicate prevention and audit logging.
-  - Verified with 9/9 passing tests in `tests/subject-attendance-no-period.test.ts`.
-- **University Assessment Schemes & Exact Mathematical Weightages**:
-  - Strict validation enforcing exact 100% total weightage across assessment categories.
-  - Migration `20261102120000_university_assessment_results` and `20261102140000_lms_assignment_assessment_integration` applied to PostgreSQL.
+  - Verified with 10/10 passing tests in `tests/subject-attendance-no-period.test.ts`.
+- **Option A Shared Category Grading & Mathematical Exactness**:
+  - Configured shared `Assignments` category (e.g. 15% weightage).
+  - All course assignments belong to this shared category. Equal weighting average percentage: Assignment 1 (98/100) and Assignment 2 (66/100) produce an 82.0000% category score and contribute 12.3000/15 points to final subject grade ($82\% \times 15\% = 12.3000$).
+  - Overall final score with Participation (10%), Midterm (20%), and Final (40%): $12.3 + 9.5 + 18.0 + 36.0 = 83.8000/100$.
+  - Explicit internal assignment allocations totaling 100% within the category supported.
+  - Migrations `20261102120000_university_assessment_results`, `20261102140000_lms_assignment_assessment_integration`, and `20261102160000_assignment_display_order` applied to PostgreSQL.
   - 1:1 foreign key relation `assignment.assessmentItemId` linking LMS Course Assignments with authoritative Assessment Items.
-  - Exact weighted contribution formula: `Weighted contribution = (Student Marks / Max Marks) * Component Weightage`.
-  - Example: Assignment 1 (98/100 * 15% = 14.70), Assignment 2 (66/100 * 15% = 9.90) yields total assignments contribution of 24.60/30. Adding Participation (10%), Midterm (20%), and Final (40%) produces overall final score 83.60/100 and Letter Grade A-.
+- **Assignment Renumbering & Display Order Preservation**:
+  - `displayOrder` column on `Assignment` and `AssessmentItem`.
+  - Teachers can change assignment numbering/display order post-submissions without loss of student submissions, marks, or feedback. Stable IDs preserved.
+  - Duplicate numbers in course prevented. Full audit logging via `AuditEvent`.
 - **Unified Teacher Gradebook Matrix**:
   - Interactive grid matrix displaying all configured assessment components, raw marks, live calculated weighted contributions, cumulative total score out of 100%, letter grades, GPA points, and summary statistics (Class Average, Highest, Lowest, Pass Rate).
   - Live real-time recalculation upon mark changes and transactional batch save via `POST /api/v1/assessments/gradebook/save`.
@@ -215,8 +220,10 @@ d:\lms2/
   - **Maker-Checker & Correction Requests**: If adjustments are required post-submission, teachers submit formal correction requests with affected student, original marks, proposed marks, and justification. Exam Department reviews and approves or rejects with full audit logs.
   - **Publication & Transcripts**: Exam Controller moderation publishes final grades to official student report cards and permanent academic transcripts.
 - **Verification Evidence**:
-  - `tests/master-lms-assessment-integration.test.ts`: **All 24/24 tests PASSED**.
+  - `tests/master-lms-assessment-integration.test.ts`: **All 30/30 tests PASSED**.
   - `tests/university-assessment-results.test.ts`: **All 20/20 tests PASSED**.
+  - `tests/subject-attendance-no-period.test.ts`: **All 10/10 tests PASSED**.
+  - Total automated assessment test suite: **60/60 tests PASSED (0 failures)**.
   - `npm --prefix client run build`: Exit Code 0 (Production bundle built successfully).
   - `npm --prefix server run build`: Exit Code 0 (TypeScript build succeeded with 0 errors).
   - Both development servers active and healthy: Backend (`localhost:4000`) and Frontend (`localhost:5173`).
