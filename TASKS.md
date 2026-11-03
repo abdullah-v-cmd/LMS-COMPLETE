@@ -330,3 +330,46 @@
   - **Evidence**: `tests/assessment-item-edit-delete-auth.test.ts` (7/7 passed), `tests/university-assessment-results.test.ts` (20/20 passed), `tests/master-lms-assessment-integration.test.ts` (33/33 passed), client and server production builds 100% clean.
 
 
+
+- [x] **TASK-P10-06**
+  - **Feature**: Dynamic Assessment Categories ↔ Gradebook Synchronization, LMS Assignment Auto-Sync, and Exam Push Marks Workflow (Sections 6–8)
+  - **Implementation Scope**:
+    - **Dynamic Category Synchronization (Section 6)**:
+      - Any created or edited category (Presentation, Quiz, Practical, Participation, etc.) immediately generates/exposes dynamic Gradebook columns for the student roster.
+      - Scheme weightage changes auto-synchronize to the Gradebook.
+      - Strict 100% total weightage validation: clear remaining unallocated percentage warning if < 100%, blocked if > 100%.
+      - Existing student marks, items, and audit logs are fully preserved.
+      - Single source of truth: Gradebook reads authoritative categories and weightages from Assessment Scheme.
+    - **LMS Assignment Synchronization (Section 7)**:
+      - Creating an LMS assignment automatically provisions a corresponding assessment item under the shared 15% Assignments category.
+      - Shared category weightage: Individual assignments share the 15% allocation equally; no duplicate categories or independent 15% bloat.
+      - Automatic marks sync from student LMS submission grading into Gradebook and canonical subject result records.
+    - **Exam-to-Assessment Linking & Push Marks Workflow (Section 8)**:
+      - Exam Schedules (Midterm/Final) can be explicitly linked to compatible assessment components for the same subject and term.
+      - Dedicated Push Marks action (`POST /api/v1/exams/schedules/:id/push-marks`) with transactional sync to `StudentAssessmentMark` and live recalculation.
+      - Push status lifecycle: `NOT_PUSHED`, `PUSH_PENDING`, `PUSHED`, `UPDATED_MARKS_AWAITING_REPUSH` with push version and timestamp audit tracking.
+      - Prevents duplicate marks entry: Teachers enter marks once in the Exam module and push with one click.
+      - Role-based lock enforcement: Editing or pushing locked once submitted to Exam Department.
+    - **Frontend UI Enhancements**:
+      - Exam Page: Linked Component badge, Push Status badge, Push Marks to Assessment button, and Link Assessment modal.
+      - Assessment Page: Dynamic unallocated percentage gauge, Gradebook matrix, and Exam Dept submission actions.
+      - Sidebar: Extended `Assessment & Results` access to Admins and Exam Controllers.
+  - **Relevant Files**:
+    - `server/prisma/schema.prisma`
+    - `server/prisma/migrations/20261102200000_exam_push_marks_and_audit/`
+    - `server/src/modules/assessment/assessment.service.ts`
+    - `server/src/modules/exams/exams.service.ts`
+    - `server/src/modules/exams/exams.routes.ts`
+    - `server/tests/dynamic-category-gradebook.test.ts`
+    - `server/tests/exam-to-assessment-push-marks.test.ts`
+    - `client/src/pages/ExamsPage.tsx`
+    - `client/src/pages/AssessmentsPage.tsx`
+    - `client/src/components/Sidebar.tsx`
+  - **Status**: VERIFIED
+  - **Evidence**:
+    - `tests/dynamic-category-gradebook.test.ts` (8/8 passed)
+    - `tests/exam-to-assessment-push-marks.test.ts` (10/10 passed)
+    - `tests/master-lms-assessment-integration.test.ts` (33/33 passed)
+    - Full server test run: 39 test files passed (249/249 tests passing)
+    - `npm --prefix server run build` passed with 0 errors
+    - `npm --prefix client run build` passed with 0 errors
