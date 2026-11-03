@@ -59,6 +59,13 @@ describe('Examination Schedule Building and Subject Teacher Marks Upload Test', 
     });
     mathSubjectId = mathSubject.id;
 
+    await prisma.subjectResultCorrectionRequest.deleteMany({
+      where: { subjectResult: { institutionId, subjectId: mathSubjectId } },
+    });
+    await prisma.subjectResult.deleteMany({
+      where: { institutionId, subjectId: mathSubjectId },
+    });
+
     const physicsSubject = await prisma.subject.findFirstOrThrow({
       where: { institutionId, code: 'PHYS-101' },
       select: { id: true },

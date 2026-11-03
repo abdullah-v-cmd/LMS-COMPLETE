@@ -285,6 +285,25 @@ export class AssessmentService {
         },
       });
 
+      for (const cat of scheme.categories) {
+        if (!cat.name.toLowerCase().includes('assignment')) {
+          if (!cat.assessments || cat.assessments.length === 0) {
+            const item = await tx.assessmentItem.create({
+              data: {
+                assessmentCategoryId: cat.id,
+                title: cat.name,
+                maxMarks: 100,
+                weight: cat.weightagePercentage,
+                isPublished: true,
+                displayOrder: 0,
+              },
+            });
+            if (!cat.assessments) (cat as any).assessments = [];
+            cat.assessments.push(item);
+          }
+        }
+      }
+
       return scheme;
     });
   }
@@ -341,7 +360,7 @@ export class AssessmentService {
             },
           });
         } else {
-          await tx.assessmentCategory.create({
+          const newCat = await tx.assessmentCategory.create({
             data: {
               assessmentSchemeId: schemeId,
               name: cat.name,
@@ -350,6 +369,18 @@ export class AssessmentService {
               displayOrder: cat.displayOrder ?? idx,
             },
           });
+          if (!newCat.name.toLowerCase().includes('assignment')) {
+            await tx.assessmentItem.create({
+              data: {
+                assessmentCategoryId: newCat.id,
+                title: newCat.name,
+                maxMarks: 100,
+                weight: newCat.weightagePercentage,
+                isPublished: true,
+                displayOrder: 0,
+              },
+            });
+          }
         }
       }
 
@@ -1937,6 +1968,20 @@ export class AssessmentService {
     }> = [];
 
     for (const cat of scheme.categories) {
+      if (!cat.assessments || cat.assessments.length === 0) {
+        const autoItem = await prisma.assessmentItem.create({
+          data: {
+            assessmentCategoryId: cat.id,
+            title: cat.name,
+            maxMarks: 100,
+            weight: cat.weightagePercentage,
+            isPublished: true,
+            displayOrder: 0,
+          },
+        });
+        if (!cat.assessments) (cat as any).assessments = [];
+        (cat.assessments as any).push(autoItem);
+      }
       for (const item of cat.assessments) {
         columns.push({
           id: item.id,
@@ -2071,6 +2116,14 @@ export class AssessmentService {
         ].includes(subjectResults[0]?.status as any),
         subjectResultStatus: subjectResults[0]?.status ?? 'DRAFT',
       },
+      categories: scheme.categories.map((c) => ({
+        id: c.id,
+        name: c.name,
+        weightagePercentage: c.weightagePercentage,
+        description: c.description,
+        displayOrder: c.displayOrder,
+        assessmentsCount: c.assessments?.length || 0,
+      })),
       columns,
       rows,
       summary,

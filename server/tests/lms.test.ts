@@ -29,6 +29,14 @@ describe('Phase 3: Core LMS Workflow Tests', () => {
     });
     studentToken = sLogin.body.data.accessToken;
 
+    // Clean up any test courses or locked results
+    await prisma.subjectResult.deleteMany({
+      where: { subject: { code: 'MATH-101' } },
+    });
+    await prisma.course.deleteMany({
+      where: { code: { startsWith: 'VALID-' } },
+    });
+
     // Retrieve seeded course and assignment
     const course = await prisma.course.findFirst({
       where: { code: 'MATH-10-A' },
@@ -50,7 +58,7 @@ describe('Phase 3: Core LMS Workflow Tests', () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.data.length).toBeGreaterThanOrEqual(1);
-    expect(res.body.data[0].code).toBe('MATH-10-A');
+    expect(res.body.data.some((c: { code: string }) => c.code === 'MATH-10-A')).toBe(true);
   });
 
   it('GET /api/v1/lms/courses/:id returns course structure with modules, lessons, and assignments', async () => {

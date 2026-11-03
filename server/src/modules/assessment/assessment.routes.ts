@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { AssessmentController } from './assessment.controller';
+import { ExamsController } from '../exams/exams.controller';
 import { requireAuth } from '../../middleware/auth';
 import { requireTenant } from '../../middleware/tenant';
 import { validateRequest } from '../../middleware/validate';
@@ -176,6 +177,11 @@ router.post(
   validateRequest({ body: uploadManualMarksCsvSchema }),
   logAuditEvent('ASSESSMENT_MANUAL_MARKS_CSV_UPLOADED', 'AssessmentItem'),
   AssessmentController.uploadManualMarksCsv
+);
+router.post(
+  '/exam-schedules/:id/push-marks',
+  logAuditEvent('ASSESSMENT_EXAM_MARKS_PUSHED', 'ExamSchedule'),
+  ExamsController.pushMarks
 );
 
 export default router;

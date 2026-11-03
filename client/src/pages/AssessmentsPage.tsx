@@ -1570,12 +1570,17 @@ export const AssessmentsPage: React.FC = () => {
                   {isSchemeValid ? (
                     <>
                       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      Total Weightage: 100% (Valid)
+                      Total Weightage: 100% (Balanced)
+                    </>
+                  ) : totalWeight < 100 ? (
+                    <>
+                      <AlertCircle className="w-4 h-4 text-amber-600" />
+                      <span>Total: {totalWeight.toFixed(1)}% — <strong className="underline">{(100 - totalWeight).toFixed(1)}% unallocated</strong></span>
                     </>
                   ) : (
                     <>
                       <AlertCircle className="w-4 h-4 text-rose-600" />
-                      Total Weightage: {totalWeight.toFixed(1)}% (Must equal 100%)
+                      <span>Total: {totalWeight.toFixed(1)}% — <strong className="underline">Exceeds 100% by {(totalWeight - 100).toFixed(1)}%</strong></span>
                     </>
                   )}
                 </div>

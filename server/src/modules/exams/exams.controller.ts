@@ -110,4 +110,22 @@ export class ExamsController {
   static async verifyReportCard(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try { return sendSuccess(res, await ExamsService.verifyReportCard(req.institutionId!, req.user!, req.params.id, req.query.signature as string)); } catch (error) { next(error); }
   }
+
+  static async pushMarks(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const result = await ExamsService.pushMarksToAssessment(req.institutionId!, req.user!, req.params.id);
+      return sendSuccess(res, result, 200);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async linkAssessmentComponent(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const result = await ExamsService.linkAssessmentComponent(req.institutionId!, req.user!, req.params.id, req.body.assessmentItemId ?? null);
+      return sendSuccess(res, result, 200);
+    } catch (error) {
+      next(error);
+    }
+  }
 }

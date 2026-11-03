@@ -1056,6 +1056,11 @@ describe('MASTER LMS ACADEMIC ASSESSMENT, GRADING & EXAMINATION INTEGRATION SUIT
 
     expect(examMarkRes.status).toBe(200);
 
+    // Push marks to assessment component per Section 8 push marks workflow
+    await request(app)
+      .post(`/api/v1/exams/schedules/${item.examScheduleId}/push-marks`)
+      .set('Authorization', `Bearer ${teacherToken}`);
+
     // Verify marks automatically synced to StudentAssessmentMark against Alice
     const assessmentMark = await prisma.studentAssessmentMark.findUnique({
       where: {
@@ -1135,5 +1140,17 @@ describe('MASTER LMS ACADEMIC ASSESSMENT, GRADING & EXAMINATION INTEGRATION SUIT
     const partBreakdown = (aliceResult.categoryBreakdown as any[]).find((c) => c.categoryName === 'Class Participation');
     expect(partBreakdown).toBeDefined();
     expect(partBreakdown.averagePercentage).toBe(98);
+  });
+
+  afterAll(async () => {
+    await prisma.subjectResultAudit.deleteMany({});
+    await prisma.subjectResultCorrectionRequest.deleteMany({});
+    await prisma.subjectResult.deleteMany({
+      where: { subjectId, academicTermId },
+    });
+    await prisma.course.deleteMany({
+      where: { code: { startsWith: 'VALID-' } },
+    });
+    await prisma.$disconnect();
   });
 });

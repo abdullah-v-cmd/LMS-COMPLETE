@@ -51,6 +51,12 @@ describe('Phase 5: examination workflow integration', () => {
     ]);
     const term = await prisma.academicTerm.findFirstOrThrow({ where: { academicYear: { institutionId: controllerUser.institutionId! } }, select: { id: true } });
     const subject = await prisma.subject.findFirstOrThrow({ where: { institutionId: controllerUser.institutionId!, code: 'MATH-101' }, select: { id: true } });
+    await prisma.subjectResultCorrectionRequest.deleteMany({
+      where: { subjectResult: { institutionId: controllerUser.institutionId!, subjectId: subject.id } },
+    });
+    await prisma.subjectResult.deleteMany({
+      where: { institutionId: controllerUser.institutionId!, subjectId: subject.id },
+    });
     const student = await prisma.studentProfile.findFirstOrThrow({ where: { institutionId: controllerUser.institutionId!, admissionNumber: 'ADM-2026-001', status: 'ENROLLED' }, select: { id: true } });
     const controllerToken = controllerLogin.body.data.accessToken;
     const teacherToken = teacherLogin.body.data.accessToken;

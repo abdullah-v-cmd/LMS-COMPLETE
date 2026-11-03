@@ -3,7 +3,7 @@ import { ExamsController } from './exams.controller';
 import { AssessmentController } from '../assessment/assessment.controller';
 import { requireAuth } from '../../middleware/auth';
 import { requireTenant } from '../../middleware/tenant';
-import { requirePermission } from '../../middleware/rbac';
+import { requirePermission, requireAnyPermission } from '../../middleware/rbac';
 import { validateRequest } from '../../middleware/validate';
 import { logAuditEvent } from '../../middleware/audit';
 import { PERMISSIONS } from '../../constants/permissions';
@@ -19,6 +19,7 @@ import {
   assignInvigilatorsSchema,
   gradingScaleSchema,
   reportCardVerificationQuerySchema,
+  linkAssessmentSchema,
 } from './exams.schemas';
 
 const router = Router();
@@ -35,6 +36,8 @@ router.get('/schedules/:id/roster', requirePermission(PERMISSIONS.EXAM_MARKS_ENT
 router.get('/grade-changes', requirePermission(PERMISSIONS.GRADE_APPROVE), ExamsController.getPendingGradeChanges);
 router.post('/sessions', requirePermission(PERMISSIONS.EXAM_CREATE), validateRequest({ body: createExamSessionSchema }), logAuditEvent('EXAM_SESSION_CREATED', 'ExamSession'), ExamsController.createExamSession);
 router.post('/schedules', requirePermission(PERMISSIONS.EXAM_CREATE), validateRequest({ body: createExamScheduleSchema }), logAuditEvent('EXAM_SCHEDULE_CREATED', 'ExamSchedule'), ExamsController.createExamSchedule);
+router.post('/schedules/:id/push-marks', requirePermission(PERMISSIONS.EXAM_MARKS_ENTRY), validateRequest({ params: reviewGradeChangeParamsSchema }), logAuditEvent('EXAM_MARKS_PUSHED', 'ExamSchedule'), ExamsController.pushMarks);
+router.post('/schedules/:id/link-assessment', requireAnyPermission(PERMISSIONS.EXAM_CREATE, PERMISSIONS.EXAM_MARKS_ENTRY), validateRequest({ params: reviewGradeChangeParamsSchema, body: linkAssessmentSchema }), logAuditEvent('EXAM_ASSESSMENT_LINKED', 'ExamSchedule'), ExamsController.linkAssessmentComponent);
 router.post('/marks', requirePermission(PERMISSIONS.EXAM_MARKS_ENTRY), validateRequest({ body: enterMarksSchema }), logAuditEvent('EXAM_MARKS_ENTERED', 'ExamMark'), ExamsController.enterMarks);
 router.post('/grade-changes', requirePermission(PERMISSIONS.GRADE_UPDATE), validateRequest({ body: requestGradeChangeSchema }), logAuditEvent('GRADE_CHANGE_REQUESTED', 'GradeChangeRequest'), ExamsController.requestGradeChange);
 router.post('/grade-changes/:id/review', requirePermission(PERMISSIONS.GRADE_APPROVE), validateRequest({ params: reviewGradeChangeParamsSchema, body: reviewGradeChangeSchema }), logAuditEvent('GRADE_CHANGE_REVIEWED', 'GradeChangeRequest'), ExamsController.reviewGradeChange);

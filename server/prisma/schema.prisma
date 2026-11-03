@@ -206,6 +206,7 @@ model Institution {
   reportCards        StudentReportCard[]
   assessmentSchemes  AssessmentScheme[]
   subjectResults     SubjectResult[]
+  examPushRecords    ExamPushRecord[]
 
   @@map("institutions")
 }
@@ -818,6 +819,10 @@ model ExamSchedule {
   maxMarks      Float    @default(100)
   passMarks     Float    @default(40)
   roomNumber    String?
+  pushStatus    String   @default("NOT_PUSHED")
+  pushedAt      DateTime?
+  pushedByUserId String?
+  pushVersion   Int      @default(0)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -826,6 +831,7 @@ model ExamSchedule {
   marks       ExamMark[]
   invigilators ExamInvigilator[]
   assessmentItems AssessmentItem[]
+  pushRecords  ExamPushRecord[]
 
   @@unique([examSessionId, subjectId])
   @@map("exam_schedules")
@@ -1048,8 +1054,28 @@ model AssessmentItem {
   marks             StudentAssessmentMark[]
   deadlineHistories AssessmentDeadlineHistory[]
   submissions       AssessmentSubmissionRecord[]
+  pushRecords       ExamPushRecord[]
 
   @@map("assessment_items")
+}
+
+model ExamPushRecord {
+  id               String   @id @default(uuid())
+  institutionId    String
+  examScheduleId   String
+  assessmentItemId String
+  pushedByUserId   String
+  pushVersion      Int
+  studentCount     Int
+  syncedMarks      Json?
+  timestamp        DateTime @default(now())
+
+  institution    Institution    @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  examSchedule   ExamSchedule   @relation(fields: [examScheduleId], references: [id], onDelete: Cascade)
+  assessmentItem AssessmentItem @relation(fields: [assessmentItemId], references: [id], onDelete: Cascade)
+
+  @@index([institutionId, examScheduleId])
+  @@map("exam_push_records")
 }
 
 model AssessmentDeadlineHistory {

@@ -18,11 +18,14 @@ export const createExamScheduleSchema = z.object({
   maxMarks: z.number().positive().max(10000).default(100),
   passMarks: z.number().positive().max(10000).default(40),
   roomNumber: z.string().trim().max(40).optional(),
+  assessmentItemId: z.string().uuid().optional().nullable(),
 }).refine((data) => data.passMarks <= data.maxMarks, { path: ['passMarks'], message: 'passMarks cannot exceed maxMarks' })
   .refine((data) => data.startTime < data.endTime, { path: ['endTime'], message: 'endTime must be after startTime' });
 
 export const enterMarksSchema = z.object({
   examScheduleId: z.string().uuid(),
+  allowUpdate: z.boolean().optional(),
+  pushImmediately: z.boolean().optional(),
   marks: z.array(
     z.object({
       studentId: z.string().uuid(),
@@ -35,6 +38,10 @@ export const enterMarksSchema = z.object({
   path: ['marks'], message: 'A student may appear only once in a marks batch',
 }).refine((data) => data.marks.every((mark) => !mark.isAbsent || mark.marksObtained === 0), {
   path: ['marks'], message: 'Absent students must have zero marks',
+});
+
+export const linkAssessmentSchema = z.object({
+  assessmentItemId: z.string().uuid().nullable().optional(),
 });
 
 export const requestGradeChangeSchema = z.object({

@@ -62,6 +62,13 @@ describe('Assessment Item Edit, Delete, Exam Linking & Subject Teacher Strict Au
     studentAliceId = alice.id;
     sectionAId = alice.sectionId;
 
+    await prisma.subjectResultCorrectionRequest.deleteMany({
+      where: { subjectResult: { institutionId, subjectId: mathSubjectId } },
+    });
+    await prisma.subjectResult.deleteMany({
+      where: { institutionId, subjectId: mathSubjectId },
+    });
+
     // Find or create an exam schedule for linking
     const session = await prisma.examSession.findFirst({
       where: { institutionId, academicTermId },

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import {
+  RotateCcw,
   Calendar,
   Award,
   FileSpreadsheet,
@@ -39,6 +40,17 @@ type Schedule = {
   maxMarks: number;
   passMarks: number;
   roomNumber: string | null;
+  pushStatus?: 'NOT_PUSHED' | 'PUSH_PENDING' | 'PUSHED' | 'UPDATED_MARKS_AWAITING_REPUSH';
+  pushedAt?: string | null;
+  pushedByUserId?: string | null;
+  pushVersion?: number;
+  assessmentItems?: Array<{
+    id: string;
+    title: string;
+    maxMarks: number;
+    weightagePercentage?: number;
+    category?: { id: string; name: string; weightagePercentage: number };
+  }>;
   marks?: Array<{ id: string; studentId: string; marksObtained: number; isAbsent: boolean }>;
   invigilators?: Array<{ id: string; user: { firstName: string; lastName: string } }>;
 };
@@ -212,6 +224,8 @@ export const ExamsPage: React.FC = () => {
   );
   const [selectedResultCardId, setSelectedResultCardId] = useState<string | null>(null);
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
+  const [showLinkModal, setShowLinkModal] = useState(false);
+  const [selectedAssessmentItemId, setSelectedAssessmentItemId] = useState('');
 
   // Queries
   const sessionsQuery = useQuery({
@@ -262,7 +276,7 @@ export const ExamsPage: React.FC = () => {
     queryKey: ['exam-mark-roster', scheduleId],
     queryFn: async () =>
       (await apiClient.get(`/exams/schedules/${scheduleId}/roster`)).data.data as {
-        schedule: { id: string; maxMarks: number; passMarks: number; examSession: { status: string; name: string } };
+        schedule: Schedule & { examSession: { id: string; status: string; name: string; academicTermId?: string } };
         sections?: SectionOption[];
         students: StudentRow[];
       },
@@ -397,6 +411,50 @@ export const ExamsPage: React.FC = () => {
       'Invigilator assignments saved.'
     )
   );
+
+  const pushMarksMutation = useMutation(
+    mutate(
+      async () => apiClient.post(`/exams/schedules/${scheduleId}/push-marks`),
+      'Exam marks successfully pushed to Assessment Schemes and Gradebook!'
+    )
+  );
+
+  const linkAssessmentMutation = useMutation(
+    mutate(
+      async (assessmentItemId: string | null) =>
+        apiClient.post(`/exams/schedules/${scheduleId}/link-assessment`, { assessmentItemId }),
+      'Assessment component linking updated successfully.'
+    )
+  );
+
+  const compatibleAssessmentItemsQuery = useQuery({
+    queryKey: [
+      'compatible-assessment-items',
+      rosterQuery.data?.schedule.subjectId,
+      rosterQuery.data?.schedule.examSession?.academicTermId,
+    ],
+    queryFn: async () => {
+      const subjectId = rosterQuery.data?.schedule.subjectId;
+      const termId = rosterQuery.data?.schedule.examSession?.academicTermId;
+      if (!subjectId || !termId) return [];
+      const res = await apiClient.get('/assessments/schemes', {
+        params: { subjectId, academicTermId: termId },
+      });
+      const scheme = res.data.data;
+      if (!scheme || !scheme.categories) return [];
+      return scheme.categories.flatMap((cat: any) =>
+        (cat.assessments || []).map((item: any) => ({
+          id: item.id,
+          title: item.title,
+          maxMarks: item.maxMarks,
+          categoryName: cat.name,
+          weightagePercentage: cat.weightagePercentage,
+          examScheduleId: item.examScheduleId,
+        }))
+      );
+    },
+    enabled: Boolean(showLinkModal && rosterQuery.data?.schedule),
+  });
 
   useEffect(() => {
     if (assignedInvigilatorsQuery.data) {
@@ -1675,6 +1733,93 @@ export const ExamsPage: React.FC = () => {
               </div>
             </div>
 
+            {/* Linked Assessment Component & Push Marks Status Bar */}
+            {rosterQuery.data?.schedule && (
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Linked Component:</span>
+                    {rosterQuery.data.schedule.assessmentItems && rosterQuery.data.schedule.assessmentItems.length > 0 ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-primary-100 text-primary-800 border border-primary-200">
+                        <Layers className="w-3.5 h-3.5 text-primary-600" />
+                        {rosterQuery.data.schedule.assessmentItems[0].title} (
+                        {rosterQuery.data.schedule.assessmentItems[0].category?.name} ·{' '}
+                        {rosterQuery.data.schedule.assessmentItems[0].category?.weightagePercentage}% Course Weight)
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-100 text-amber-800 border border-amber-200">
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                        Not linked to Assessment Scheme / Gradebook
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowLinkModal(true)}
+                      className="text-xs font-semibold text-primary-600 hover:text-primary-700 underline ml-1"
+                    >
+                      {rosterQuery.data.schedule.assessmentItems && rosterQuery.data.schedule.assessmentItems.length > 0
+                        ? 'Change Link'
+                        : 'Link Component'}
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
+                    <span>
+                      Max Marks: <strong className="text-slate-800">{rosterQuery.data.schedule.maxMarks}</strong>
+                    </span>
+                    <span>·</span>
+                    <span className="flex items-center gap-1">
+                      Push Status:
+                      {rosterQuery.data.schedule.pushStatus === 'PUSHED' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded font-bold text-xs bg-emerald-100 text-emerald-800">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" /> PUSHED (v{rosterQuery.data.schedule.pushVersion ?? 1})
+                        </span>
+                      )}
+                      {rosterQuery.data.schedule.pushStatus === 'PUSH_PENDING' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded font-bold text-xs bg-amber-100 text-amber-800">
+                          <Clock className="w-3 h-3 text-amber-600" /> PUSH PENDING
+                        </span>
+                      )}
+                      {rosterQuery.data.schedule.pushStatus === 'UPDATED_MARKS_AWAITING_REPUSH' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded font-bold text-xs bg-purple-100 text-purple-800">
+                          <RotateCcw className="w-3 h-3 text-purple-600" /> REPUSH REQUIRED
+                        </span>
+                      )}
+                      {(!rosterQuery.data.schedule.pushStatus || rosterQuery.data.schedule.pushStatus === 'NOT_PUSHED') && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded font-medium text-xs bg-slate-200 text-slate-700">
+                          NOT PUSHED
+                        </span>
+                      )}
+                    </span>
+                    {rosterQuery.data.schedule.pushedAt && (
+                      <>
+                        <span>·</span>
+                        <span className="text-slate-500">
+                          Last Pushed: {new Date(rosterQuery.data.schedule.pushedAt).toLocaleString()}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={
+                      pushMarksMutation.isPending ||
+                      !rosterQuery.data.schedule.assessmentItems?.length ||
+                      rosterQuery.data.students.every((s) => !s.mark)
+                    }
+                    onClick={() => pushMarksMutation.mutate()}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 transition shadow-sm"
+                    title="Push exam marks to linked assessment component in Gradebook and recalculate results"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    {pushMarksMutation.isPending ? 'Pushing...' : 'Push Marks to Assessment'}
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Quick CSV Toggle */}
             <div className="flex justify-end">
               <button
@@ -1864,6 +2009,87 @@ export const ExamsPage: React.FC = () => {
             )}
           </div>
         </section>
+      )}
+
+      {/* Link Assessment Component Modal */}
+      {showLinkModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b pb-3">
+              <h3 className="text-base font-bold text-slate-900">Link Assessment Component</h3>
+              <button type="button" onClick={() => setShowLinkModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500">
+              Connect this Exam Schedule to a course assessment component (e.g. Midterm 25% or Final 50%).
+              Marks pushed from this exam will automatically update the canonical Gradebook and course results.
+            </p>
+
+            {compatibleAssessmentItemsQuery.isLoading && <p className="text-xs text-slate-400 py-4 text-center">Loading components...</p>}
+            {compatibleAssessmentItemsQuery.data && compatibleAssessmentItemsQuery.data.length === 0 && (
+              <p className="text-xs text-rose-600 py-2">No compatible assessment components found for this subject and term. Please create an Assessment Scheme first.</p>
+            )}
+
+            {compatibleAssessmentItemsQuery.data && compatibleAssessmentItemsQuery.data.length > 0 && (
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold text-slate-700">Select Assessment Component:</label>
+                <select
+                  value={selectedAssessmentItemId}
+                  onChange={(e) => setSelectedAssessmentItemId(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 p-2.5 text-xs font-medium text-slate-800"
+                >
+                  <option value="">-- Choose Component --</option>
+                  {compatibleAssessmentItemsQuery.data.map((item: any) => (
+                    <option key={item.id} value={item.id} disabled={item.examScheduleId && item.examScheduleId !== scheduleId}>
+                      {item.title} ({item.categoryName} · {item.weightagePercentage}% weight) {item.examScheduleId && item.examScheduleId !== scheduleId ? '(Already linked)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-3 border-t">
+              {rosterQuery.data?.schedule.assessmentItems?.length ? (
+                <button
+                  type="button"
+                  disabled={linkAssessmentMutation.isPending}
+                  onClick={() => {
+                    linkAssessmentMutation.mutate(null, {
+                      onSuccess: () => setShowLinkModal(false),
+                    });
+                  }}
+                  className="text-xs font-semibold text-rose-600 hover:text-rose-700"
+                >
+                  Unlink Component
+                </button>
+              ) : <div />}
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowLinkModal(false)}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={linkAssessmentMutation.isPending || !selectedAssessmentItemId}
+                  onClick={() => {
+                    linkAssessmentMutation.mutate(selectedAssessmentItemId, {
+                      onSuccess: () => setShowLinkModal(false),
+                    });
+                  }}
+                  className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-40"
+                >
+                  Save Link
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* =========================================================================
