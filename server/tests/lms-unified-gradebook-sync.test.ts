@@ -108,53 +108,50 @@ describe('Unified Gradebook, Assignment Mapping & Submission Sync (Critical Issu
     });
 
     // Reset or ensure Assessment Scheme with 15% Assignments category
-    let scheme = await prisma.assessmentScheme.findFirst({
+    await prisma.assessmentScheme.deleteMany({
       where: { institutionId, subjectId: mathSubjectId, sectionId: sectionAId, academicTermId },
-      include: { categories: true },
     });
 
-    if (!scheme) {
-      scheme = await prisma.assessmentScheme.create({
-        data: {
-          institutionId,
-          subjectId: mathSubjectId,
-          sectionId: sectionAId,
-          academicTermId,
-          title: 'Math Grade 10 Scheme',
-          status: 'DRAFT',
-          createdById: teacherUserId,
-          categories: {
-            create: [
-              {
-                name: 'Assignments',
-                weightagePercentage: 15,
-                description: 'Shared category for assignments (15% total)',
-                displayOrder: 0,
-              },
-              {
-                name: 'Quizzes',
-                weightagePercentage: 15,
-                description: 'Short quizzes',
-                displayOrder: 1,
-              },
-              {
-                name: 'Midterm Exam',
-                weightagePercentage: 30,
-                description: 'Midterm examination',
-                displayOrder: 2,
-              },
-              {
-                name: 'Final Exam',
-                weightagePercentage: 40,
-                description: 'Final examination',
-                displayOrder: 3,
-              },
-            ],
-          },
+    const scheme = await prisma.assessmentScheme.create({
+      data: {
+        institutionId,
+        subjectId: mathSubjectId,
+        sectionId: sectionAId,
+        academicTermId,
+        title: 'Math Grade 10 Scheme',
+        status: 'DRAFT',
+        createdById: teacherUserId,
+        categories: {
+          create: [
+            {
+              name: 'Assignments',
+              weightagePercentage: 15,
+              description: 'Shared category for assignments (15% total)',
+              displayOrder: 0,
+            },
+            {
+              name: 'Quizzes',
+              weightagePercentage: 15,
+              description: 'Short quizzes',
+              displayOrder: 1,
+            },
+            {
+              name: 'Midterm Exam',
+              weightagePercentage: 30,
+              description: 'Midterm examination',
+              displayOrder: 2,
+            },
+            {
+              name: 'Final Exam',
+              weightagePercentage: 40,
+              description: 'Final examination',
+              displayOrder: 3,
+            },
+          ],
         },
-        include: { categories: true },
-      });
-    }
+      },
+      include: { categories: true },
+    });
 
     schemeId = scheme.id;
     const assignCat = scheme.categories.find((c) => c.name.toLowerCase().includes('assignment'));

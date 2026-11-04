@@ -25,14 +25,20 @@ export const createAssessmentSchemeSchema = z.object({
 );
 
 export const updateAssessmentSchemeSchema = z.object({
-  title: z.string().trim().min(3).max(150).optional(),
+  title: z.string().trim().min(1).max(150).optional(),
+  description: z.string().trim().max(500).optional().nullable(),
   categories: z.array(
     z.object({
-      id: z.string().uuid().optional().nullable(),
+      id: z.preprocess((val) => {
+        if (typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)) {
+          return val;
+        }
+        return undefined;
+      }, z.string().uuid().optional().nullable()),
       name: z.string().trim().min(1).max(100),
-      weightagePercentage: z.number().min(0).max(100),
+      weightagePercentage: z.coerce.number().min(0).max(100),
       description: z.string().trim().max(500).optional().nullable(),
-      displayOrder: z.number().int().min(0).optional().nullable(),
+      displayOrder: z.coerce.number().int().min(0).optional().nullable(),
     })
   ).min(1, 'At least one category is required'),
 }).refine(
@@ -51,14 +57,19 @@ export const createAssessmentItemSchema = z.object({
   title: z.string().trim().min(1, 'Title is required').max(150),
   description: z.string().trim().max(1000).optional().nullable(),
   instructions: z.string().trim().max(5000).optional().nullable(),
-  attachmentUrl: z.string().trim().url().optional().or(z.literal('')).nullable(),
-  maxMarks: z.number().positive('Maximum marks must be greater than 0').max(1000),
-  weight: z.number().positive().default(1),
+  attachmentUrl: z.string().trim().max(1000).optional().nullable(),
+  maxMarks: z.coerce.number().positive('Maximum marks must be greater than 0').max(1000),
+  weight: z.coerce.number().positive().default(1),
   assessmentDate: z.string().optional().nullable(),
   dueDate: z.string().optional().nullable(),
   isPublished: z.boolean().default(false),
-  examScheduleId: z.string().uuid().nullable().optional(),
-  displayOrder: z.number().int().min(0).optional(),
+  examScheduleId: z.preprocess((val) => {
+    if (typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)) {
+      return val;
+    }
+    return null;
+  }, z.string().uuid().nullable().optional()),
+  displayOrder: z.coerce.number().int().min(0).optional(),
 });
 
 export const updateAssessmentItemSchema = z.object({
@@ -66,14 +77,19 @@ export const updateAssessmentItemSchema = z.object({
   title: z.string().trim().min(1, 'Title is required').max(150).optional(),
   description: z.string().trim().max(1000).optional().nullable(),
   instructions: z.string().trim().max(5000).optional().nullable(),
-  attachmentUrl: z.string().trim().url().optional().or(z.literal('')).nullable(),
-  maxMarks: z.number().positive('Maximum marks must be greater than 0').max(1000).optional(),
-  weight: z.number().positive().optional(),
+  attachmentUrl: z.string().trim().max(1000).optional().nullable(),
+  maxMarks: z.coerce.number().positive('Maximum marks must be greater than 0').max(1000).optional(),
+  weight: z.coerce.number().positive().optional(),
   assessmentDate: z.string().optional().nullable(),
   dueDate: z.string().optional().nullable(),
   isPublished: z.boolean().optional(),
-  examScheduleId: z.string().uuid().nullable().optional(),
-  displayOrder: z.number().int().min(0).optional(),
+  examScheduleId: z.preprocess((val) => {
+    if (typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)) {
+      return val;
+    }
+    return null;
+  }, z.string().uuid().nullable().optional()),
+  displayOrder: z.coerce.number().int().min(0).optional(),
 });
 
 export const extendAssessmentDeadlineSchema = z.object({
@@ -142,21 +158,39 @@ export const examDepartmentReviewSchema = z.object({
   comments: z.string().trim().max(1000).optional(),
 });
 
-export const saveGradebookMarksSchema = z.object({
-  subjectId: z.string().uuid(),
-  sectionId: z.string().uuid(),
-  academicTermId: z.string().uuid(),
-  updates: z.array(
-    z.object({
-      assessmentItemId: z.string().uuid(),
-      studentId: z.string().uuid(),
-      marksObtained: z.number().min(0, 'Marks cannot be negative').optional().nullable(),
-      isAbsent: z.boolean().optional(),
-      isExcused: z.boolean().optional(),
-      remarks: z.string().trim().max(500).optional().nullable(),
-    })
-  ).min(1, 'At least one mark update is required'),
+const gradebookItemUpdateSchema = z.object({
+  assessmentItemId: z.string().uuid(),
+  studentId: z.string().uuid(),
+  marksObtained: z.preprocess((val) => {
+    if (val === '' || val === null || val === undefined) return null;
+    const num = Number(val);
+    return isNaN(num) ? null : num;
+  }, z.number().min(0, 'Marks cannot be negative').nullable().optional()),
+  isAbsent: z.boolean().optional().default(false),
+  isExcused: z.boolean().optional().default(false),
+  remarks: z.string().trim().max(500).optional().nullable(),
 });
+
+export const saveGradebookMarksSchema = z
+  .object({
+    subjectId: z.string().uuid(),
+    sectionId: z.string().uuid(),
+    academicTermId: z.string().uuid(),
+    updates: z.array(gradebookItemUpdateSchema).optional(),
+    marks: z.array(gradebookItemUpdateSchema).optional(),
+  })
+  .transform((data) => {
+    const list = data.updates || data.marks || [];
+    return {
+      ...data,
+      updates: list,
+      marks: list,
+    };
+  })
+  .refine((data) => data.updates.length > 0, {
+    message: 'At least one mark update is required',
+    path: ['updates'],
+  });
 
 export const connectExamScheduleSchema = z.object({
   examScheduleId: z.string().uuid().nullable().optional(),

@@ -974,7 +974,7 @@ export const AssessmentsPage: React.FC = () => {
       if (!isSchemeValid) throw new Error('Category percentages must total exactly 100%');
 
       const cleanedCategories = categoriesDraft.map((c, idx) => ({
-        id: c.id || undefined,
+        id: c.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(c.id) ? c.id : undefined,
         name: c.name.trim(),
         weightagePercentage: Number(c.weightagePercentage),
         description: c.description ? c.description.trim() : '',
@@ -1020,14 +1020,15 @@ export const AssessmentsPage: React.FC = () => {
   // Create Assessment Item
   const createItemMutation = useMutation({
     mutationFn: async () => {
+      const maxMarksNum = Number(newItemMaxMarks);
       const res = await apiClient.post('/assessments/items', {
         assessmentCategoryId: newItemCategoryId,
-        title: newItemTitle,
-        maxMarks: Number(newItemMaxMarks),
-        dueDate: newItemDueDate ? new Date(newItemDueDate).toISOString() : undefined,
-        instructions: newItemInstructions,
-        attachmentUrl: newItemAttachmentUrl,
-        examScheduleId: newItemExamScheduleId || undefined,
+        title: newItemTitle.trim(),
+        maxMarks: !isNaN(maxMarksNum) && maxMarksNum > 0 ? maxMarksNum : 100,
+        dueDate: newItemDueDate && !isNaN(new Date(newItemDueDate).getTime()) ? new Date(newItemDueDate).toISOString() : undefined,
+        instructions: newItemInstructions?.trim() || undefined,
+        attachmentUrl: newItemAttachmentUrl?.trim() || undefined,
+        examScheduleId: newItemExamScheduleId && newItemExamScheduleId.trim() ? newItemExamScheduleId.trim() : undefined,
         isPublished: true,
       });
       return res.data;
@@ -1045,7 +1046,13 @@ export const AssessmentsPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['assessment-section-results'] });
     },
     onError: (err: any) => {
-      setError(err?.response?.data?.message || err.message || 'Failed to create item');
+      const msg =
+        err?.response?.data?.error?.message ||
+        err?.response?.data?.message ||
+        (Array.isArray(err?.response?.data?.errors) ? err.response.data.errors.map((e: any) => e.message).join(', ') : null) ||
+        err.message ||
+        'Failed to create item';
+      setError(msg);
       setNotice('');
     },
   });
@@ -1054,14 +1061,15 @@ export const AssessmentsPage: React.FC = () => {
   const updateItemMutation = useMutation({
     mutationFn: async () => {
       if (!editingItem) return;
+      const maxMarksNum = Number(editItemMaxMarks);
       const res = await apiClient.put(`/assessments/items/${editingItem.id}`, {
         assessmentCategoryId: editItemCategoryId || undefined,
-        title: editItemTitle,
-        maxMarks: Number(editItemMaxMarks),
-        dueDate: editItemDueDate ? new Date(editItemDueDate).toISOString() : null,
-        instructions: editItemInstructions || null,
-        attachmentUrl: editItemAttachmentUrl || null,
-        examScheduleId: editItemExamScheduleId || null,
+        title: editItemTitle?.trim(),
+        maxMarks: !isNaN(maxMarksNum) && maxMarksNum > 0 ? maxMarksNum : undefined,
+        dueDate: editItemDueDate && !isNaN(new Date(editItemDueDate).getTime()) ? new Date(editItemDueDate).toISOString() : null,
+        instructions: editItemInstructions?.trim() || null,
+        attachmentUrl: editItemAttachmentUrl?.trim() || null,
+        examScheduleId: editItemExamScheduleId && editItemExamScheduleId.trim() ? editItemExamScheduleId.trim() : null,
       });
       return res.data;
     },
@@ -1076,7 +1084,13 @@ export const AssessmentsPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['assessment-marks-roster'] });
     },
     onError: (err: any) => {
-      setError(err?.response?.data?.message || err.message || 'Failed to update item');
+      const msg =
+        err?.response?.data?.error?.message ||
+        err?.response?.data?.message ||
+        (Array.isArray(err?.response?.data?.errors) ? err.response.data.errors.map((e: any) => e.message).join(', ') : null) ||
+        err.message ||
+        'Failed to update item';
+      setError(msg);
       setNotice('');
     },
   });
@@ -1171,7 +1185,7 @@ export const AssessmentsPage: React.FC = () => {
         marksObtained?: number | null;
         isAbsent?: boolean;
         isExcused?: boolean;
-        remarks?: string;
+        remarks?: string | null;
       }> = [];
 
       gradebookStudents.forEach((st) => {
@@ -1179,13 +1193,19 @@ export const AssessmentsPage: React.FC = () => {
           const key = `${st.studentId}:${col.id}`;
           const draft = gradebookDrafts[key];
           if (draft !== undefined) {
+            const raw = draft.marksObtained;
+            const marksObtained =
+              raw === null || raw === undefined || isNaN(Number(raw))
+                ? null
+                : Number(raw);
+
             payload.push({
               studentId: st.studentId,
               assessmentItemId: col.id,
-              marksObtained: draft.marksObtained,
-              isAbsent: draft.isAbsent,
-              isExcused: draft.isExcused,
-              remarks: draft.remarks,
+              marksObtained,
+              isAbsent: Boolean(draft.isAbsent),
+              isExcused: Boolean(draft.isExcused),
+              remarks: draft.remarks ? draft.remarks.trim() : null,
             });
           }
         });
@@ -1199,6 +1219,7 @@ export const AssessmentsPage: React.FC = () => {
         subjectId: currentAssignment.subjectId,
         sectionId: currentAssignment.sectionId,
         academicTermId: currentAssignment.academicTermId,
+        updates: payload,
         marks: payload,
       });
       return res.data;
@@ -1212,7 +1233,15 @@ export const AssessmentsPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['assessment-marks-roster'] });
     },
     onError: (err: any) => {
-      setError(err?.response?.data?.message || err.message || 'Failed to save gradebook marks');
+      const msg =
+        err?.response?.data?.error?.message ||
+        err?.response?.data?.message ||
+        (Array.isArray(err?.response?.data?.errors)
+          ? err.response.data.errors.map((e: any) => e.message).join(', ')
+          : null) ||
+        err.message ||
+        'Failed to save gradebook marks';
+      setError(msg);
       setNotice('');
     },
   });

@@ -2322,7 +2322,15 @@ export class AssessmentService {
       subjectId: string;
       sectionId: string;
       academicTermId: string;
-      updates: Array<{
+      updates?: Array<{
+        assessmentItemId: string;
+        studentId: string;
+        marksObtained?: number | null;
+        isAbsent?: boolean;
+        isExcused?: boolean;
+        remarks?: string;
+      }>;
+      marks?: Array<{
         assessmentItemId: string;
         studentId: string;
         marksObtained?: number | null;
@@ -2332,6 +2340,18 @@ export class AssessmentService {
       }>;
     }
   ) {
+    const updates: Array<{
+      assessmentItemId: string;
+      studentId: string;
+      marksObtained?: number | null;
+      isAbsent?: boolean;
+      isExcused?: boolean;
+      remarks?: string | null;
+    }> = data.updates || (data as any).marks || [];
+    if (!updates.length) {
+      throw { status: 400, message: 'At least one mark update is required' };
+    }
+
     await this.assertTeacherAuthorized(institutionId, user, data.subjectId, data.sectionId);
     await this.assertSchemeNotLockedForTeacher(data.subjectId, data.academicTermId, data.sectionId);
 
@@ -2362,7 +2382,7 @@ export class AssessmentService {
     }
 
     // Validate marks
-    for (const u of data.updates) {
+    for (const u of updates) {
       const item = itemsMap.get(u.assessmentItemId);
       if (!item) throw { status: 404, message: `Assessment item ${u.assessmentItemId} not found in scheme` };
       if (u.marksObtained !== null && u.marksObtained !== undefined) {
@@ -2378,7 +2398,7 @@ export class AssessmentService {
 
     // Transactionally update marks and sync with LMS assignments
     await prisma.$transaction(async (tx) => {
-      for (const u of data.updates) {
+      for (const u of updates) {
         const item = itemsMap.get(u.assessmentItemId);
 
         await tx.studentAssessmentMark.upsert({
@@ -2461,7 +2481,7 @@ export class AssessmentService {
     });
 
     // Recalculate distinct affected students
-    const affectedStudentIds = [...new Set(data.updates.map((u) => u.studentId))];
+    const affectedStudentIds: string[] = Array.from(new Set(updates.map((u) => u.studentId)));
     for (const sid of affectedStudentIds) {
       await this.recalculateStudentSubjectResult(
         institutionId,

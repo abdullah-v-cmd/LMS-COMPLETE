@@ -389,4 +389,46 @@ describe('Dynamic Assessment Categories ↔ Gradebook Synchronization Suite (Sec
     const sumCategoryWeights = breakdown.reduce((sum, b) => sum + b.weightage, 0);
     expect(sumCategoryWeights).toBeCloseTo(100, 1);
   });
+
+  it('9. Saving gradebook with "marks" payload or string marks succeeds without 400 validation error', async () => {
+    const gbRes = await request(app)
+      .get('/api/v1/assessments/gradebook')
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .query({ subjectId: mathSubjectId, sectionId: sectionAId, academicTermId });
+
+    const cols = gbRes.body.data.columns;
+    const quizCol = cols.find((c: any) => c.categoryName === 'Quizzes')!;
+
+    // Send payload formatted exactly as frontend batch save mutation (using 'marks' array and strings)
+    const saveRes = await request(app)
+      .post('/api/v1/assessments/gradebook/save')
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .send({
+        subjectId: mathSubjectId,
+        sectionId: sectionAId,
+        academicTermId,
+        marks: [
+          {
+            assessmentItemId: quizCol.id,
+            studentId: studentAliceId,
+            marksObtained: '88', // string number from frontend input
+            isAbsent: false,
+            isExcused: false,
+            remarks: 'Great improvement',
+          },
+        ],
+      });
+
+    expect(saveRes.status).toBe(200);
+    expect(saveRes.body.success).toBe(true);
+
+    // Verify marks were recorded
+    const verifyGb = await request(app)
+      .get('/api/v1/assessments/gradebook')
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .query({ subjectId: mathSubjectId, sectionId: sectionAId, academicTermId });
+
+    const aliceRow = verifyGb.body.data.rows.find((s: any) => s.studentId === studentAliceId);
+    expect(aliceRow.marks[quizCol.id].marksObtained).toBe(88);
+  });
 });
