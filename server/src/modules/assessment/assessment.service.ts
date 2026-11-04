@@ -227,13 +227,13 @@ export class AssessmentService {
     data: {
       academicTermId: string;
       subjectId: string;
-      sectionId?: string;
+      sectionId?: string | null;
       title: string;
       categories: Array<{
         name: string;
         weightagePercentage: number;
-        description?: string;
-        displayOrder?: number;
+        description?: string | null;
+        displayOrder?: number | null;
       }>;
     }
   ) {
@@ -273,7 +273,7 @@ export class AssessmentService {
             create: data.categories.map((cat, idx) => ({
               name: cat.name,
               weightagePercentage: cat.weightagePercentage,
-              description: cat.description,
+              description: cat.description || null,
               displayOrder: cat.displayOrder ?? idx,
             })),
           },
@@ -318,11 +318,11 @@ export class AssessmentService {
     data: {
       title?: string;
       categories: Array<{
-        id?: string;
+        id?: string | null;
         name: string;
         weightagePercentage: number;
-        description?: string;
-        displayOrder?: number;
+        description?: string | null;
+        displayOrder?: number | null;
       }>;
     }
   ) {
@@ -355,7 +355,7 @@ export class AssessmentService {
             data: {
               name: cat.name,
               weightagePercentage: cat.weightagePercentage,
-              description: cat.description,
+              description: cat.description || null,
               displayOrder: cat.displayOrder ?? idx,
             },
           });
@@ -365,7 +365,7 @@ export class AssessmentService {
               assessmentSchemeId: schemeId,
               name: cat.name,
               weightagePercentage: cat.weightagePercentage,
-              description: cat.description,
+              description: cat.description || null,
               displayOrder: cat.displayOrder ?? idx,
             },
           });

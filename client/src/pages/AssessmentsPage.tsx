@@ -439,7 +439,7 @@ export const AssessmentsPage: React.FC = () => {
             id: c.id,
             name: c.name,
             weightagePercentage: c.weightagePercentage,
-            description: c.description,
+            description: c.description || '',
           }))
         );
       }
@@ -880,11 +880,19 @@ export const AssessmentsPage: React.FC = () => {
       if (!currentAssignment) throw new Error('Please select an assigned subject and section');
       if (!isSchemeValid) throw new Error('Category percentages must total exactly 100%');
 
+      const cleanedCategories = categoriesDraft.map((c, idx) => ({
+        id: c.id || undefined,
+        name: c.name.trim(),
+        weightagePercentage: Number(c.weightagePercentage),
+        description: c.description ? c.description.trim() : '',
+        displayOrder: idx,
+      }));
+
       if (schemeQuery.data?.id) {
         return (
           await apiClient.put(`/assessments/schemes/${schemeQuery.data.id}`, {
-            title: schemeTitle,
-            categories: categoriesDraft,
+            title: schemeTitle.trim(),
+            categories: cleanedCategories,
           })
         ).data;
       } else {
@@ -892,9 +900,9 @@ export const AssessmentsPage: React.FC = () => {
           await apiClient.post('/assessments/schemes', {
             subjectId: currentAssignment.subjectId,
             academicTermId: currentAssignment.academicTermId,
-            sectionId: currentAssignment.sectionId,
-            title: schemeTitle,
-            categories: categoriesDraft,
+            sectionId: currentAssignment.sectionId || undefined,
+            title: schemeTitle.trim(),
+            categories: cleanedCategories,
           })
         ).data;
       }
@@ -905,7 +913,13 @@ export const AssessmentsPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['assessment-scheme'] });
     },
     onError: (err: any) => {
-      setError(err?.response?.data?.message || err.message || 'Failed to save scheme');
+      const errMsg =
+        err?.response?.data?.error?.message ||
+        err?.response?.data?.message ||
+        (Array.isArray(err?.response?.data?.errors) ? err.response.data.errors.map((e: any) => e.message).join(', ') : null) ||
+        err.message ||
+        'Failed to save scheme';
+      setError(errMsg);
       setNotice('');
     },
   });
