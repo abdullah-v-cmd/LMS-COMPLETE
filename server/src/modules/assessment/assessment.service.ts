@@ -17,6 +17,10 @@ export class AssessmentService {
    * Returns subjects and sections assigned strictly to the authenticated teacher.
    * Exam Department, Super Admin, and non-teachers do NOT have access.
    */
+  /**
+   * Returns subjects and sections assigned to the authenticated teacher,
+   * or all active allocations in the institution for Exam Controller / Admin roles.
+   */
   static async getTeacherAssignments(institutionId: string, user: AuthenticatedUser) {
     const isTeacher = ([
       UserRole.ROLE_SUBJECT_TEACHER,
@@ -27,8 +31,8 @@ export class AssessmentService {
     const isStaffAdmin = ([
       UserRole.ROLE_SUPER_ADMIN,
       UserRole.ROLE_INSTITUTION_ADMIN,
-      UserRole.ROLE_EXAM_CONTROLLER,
       UserRole.ROLE_ACADEMIC_HEAD,
+      UserRole.ROLE_EXAM_CONTROLLER,
       UserRole.ROLE_AUDITOR,
     ] as string[]).includes(user.role);
 
@@ -36,9 +40,8 @@ export class AssessmentService {
       return [];
     }
 
-    // For admins and exam controllers, return all active subject assignments in the institution
     if (isStaffAdmin) {
-      const assignments = await prisma.teacherAssignment.findMany({
+      const allAssignments = await prisma.teacherAssignment.findMany({
         where: { subject: { institutionId } },
         include: {
           subject: true,
@@ -46,9 +49,8 @@ export class AssessmentService {
           academicTerm: { include: { academicYear: true } },
         },
       });
-
       const seen = new Set<string>();
-      return assignments.filter((a) => {
+      return allAssignments.filter((a) => {
         const key = `${a.sectionId}:${a.subjectId}:${a.academicTermId}`;
         if (seen.has(key)) return false;
         seen.add(key);
@@ -81,27 +83,27 @@ export class AssessmentService {
   }
 
   /**
-   * Helper: verify user is strictly the assigned subject teacher for this subject and section.
-   * Exam Department, Super Admin, and other non-assigned roles are explicitly forbidden from editing,
-   * but permitted for viewing when allowAdminOrExamDept is true.
+   * Helper: verify user is strictly the assigned subject teacher for this subject and section,
+   * or has administrative/exam controller read privilege when allowStaffRead is true.
    */
   private static async assertTeacherAuthorized(
     institutionId: string,
     user: AuthenticatedUser,
     subjectId: string,
     sectionId?: string | null,
-    allowAdminOrExamDept: boolean = false
+    allowStaffRead: boolean = false
   ) {
-    const isStaffAdmin = ([
-      UserRole.ROLE_SUPER_ADMIN,
-      UserRole.ROLE_INSTITUTION_ADMIN,
-      UserRole.ROLE_EXAM_CONTROLLER,
-      UserRole.ROLE_ACADEMIC_HEAD,
-      UserRole.ROLE_AUDITOR,
-    ] as string[]).includes(user.role);
-
-    if (allowAdminOrExamDept && isStaffAdmin) {
-      return;
+    if (allowStaffRead) {
+      const isStaffAdmin = ([
+        UserRole.ROLE_SUPER_ADMIN,
+        UserRole.ROLE_INSTITUTION_ADMIN,
+        UserRole.ROLE_ACADEMIC_HEAD,
+        UserRole.ROLE_EXAM_CONTROLLER,
+        UserRole.ROLE_AUDITOR,
+      ] as string[]).includes(user.role);
+      if (isStaffAdmin) {
+        return;
+      }
     }
 
     const isTeacher = ([
@@ -206,6 +208,7 @@ export class AssessmentService {
             assessments: {
               orderBy: { displayOrder: 'asc' },
               include: {
+                assignment: true,
                 _count: { select: { marks: true, submissions: true } },
                 deadlineHistories: { orderBy: { createdAt: 'desc' } },
                 examSchedule: {
@@ -239,6 +242,7 @@ export class AssessmentService {
               assessments: {
                 orderBy: { displayOrder: 'asc' },
                 include: {
+                  assignment: true,
                   _count: { select: { marks: true, submissions: true } },
                   deadlineHistories: { orderBy: { createdAt: 'desc' } },
                   examSchedule: {
@@ -535,37 +539,6 @@ export class AssessmentService {
       await this.syncExamScheduleMarks(institutionId, user, item.id);
     }
 
-    // If created under an Assignments category, auto-create the corresponding LMS Assignment in Course
-    if (category.name.toLowerCase().includes('assignment')) {
-      const scheme = category.assessmentScheme;
-      const course = await prisma.course.findFirst({
-        where: {
-          institutionId,
-          subjectId: scheme.subjectId,
-          ...(scheme.sectionId ? { sectionId: scheme.sectionId } : {}),
-          academicTermId: scheme.academicTermId,
-        },
-      });
-
-      if (course) {
-        const existingAssignment = await prisma.assignment.findFirst({
-          where: { assessmentItemId: item.id },
-        });
-        if (!existingAssignment) {
-          await prisma.assignment.create({
-            data: {
-              courseId: course.id,
-              title: item.title,
-              instructions: item.instructions || item.description || `Assessment Item: ${item.title}`,
-              maxPoints: item.maxMarks,
-              dueDate: item.dueDate || new Date(Date.now() + 7 * 86400000),
-              assessmentItemId: item.id,
-            },
-          });
-        }
-      }
-    }
-
     return item;
   }
 
@@ -694,17 +667,6 @@ export class AssessmentService {
       }
     }
 
-    // Sync linked LMS Assignment if it exists
-    await prisma.assignment.updateMany({
-      where: { assessmentItemId: itemId },
-      data: {
-        ...(data.title !== undefined ? { title: data.title } : {}),
-        ...(data.instructions ? { instructions: data.instructions } : {}),
-        ...(data.maxMarks !== undefined ? { maxPoints: data.maxMarks } : {}),
-        ...(data.dueDate ? { dueDate: new Date(data.dueDate) } : {}),
-      },
-    });
-
     return updated;
   }
 
@@ -748,13 +710,11 @@ export class AssessmentService {
     });
 
     await prisma.$transaction(async (tx) => {
-      // 1. If linked to an LMS Assignment, delete assignment and its submissions
+      // 1. If linked to an LMS Assignment, unlink it
       if (item.assignment) {
-        await tx.assignmentSubmission.deleteMany({
-          where: { assignmentId: item.assignment.id },
-        });
-        await tx.assignment.delete({
+        await tx.assignment.update({
           where: { id: item.assignment.id },
+          data: { assessmentItemId: null },
         });
       }
 
@@ -859,7 +819,10 @@ export class AssessmentService {
   ) {
     const item = await prisma.assessmentItem.findFirst({
       where: { id: assessmentItemId, category: { assessmentScheme: { institutionId } } },
-      include: { category: { include: { assessmentScheme: true } } },
+      include: {
+        category: { include: { assessmentScheme: true } },
+        assignment: true,
+      },
     });
     if (!item) throw { status: 404, message: 'Assessment item not found' };
 
@@ -867,7 +830,8 @@ export class AssessmentService {
       institutionId,
       user,
       item.category.assessmentScheme.subjectId,
-      sectionId
+      sectionId,
+      true
     );
 
     const students = await prisma.studentProfile.findMany({
@@ -882,20 +846,68 @@ export class AssessmentService {
         user: { select: SAFE_USER_SELECT },
         assessmentMarks: { where: { assessmentItemId } },
         assessmentSubmissions: { where: { assessmentItemId } },
+        submissions: item.assignment ? { where: { assignmentId: item.assignment.id } } : false,
       },
       orderBy: [{ user: { lastName: 'asc' } }, { user: { firstName: 'asc' } }],
     });
 
     return {
       assessment: item,
-      students: students.map((s) => ({
-        id: s.id,
-        admissionNumber: s.admissionNumber,
-        rollNumber: s.rollNumber,
-        user: s.user,
-        mark: s.assessmentMarks[0] || null,
-        submission: s.assessmentSubmissions[0] || null,
-      })),
+      students: students.map((s) => {
+        const mark = s.assessmentMarks[0] || null;
+        const sub = s.assessmentSubmissions[0] || null;
+        const lmsSub = (s as any).submissions?.[0] || null;
+
+        const marksObtained = mark?.marksObtained ?? lmsSub?.grade ?? null;
+        const rawStatus = sub?.status ?? lmsSub?.status ?? null;
+        const submissionStatus = rawStatus ?? (marksObtained !== null ? 'GRADED' : 'NOT_SUBMITTED');
+        const submittedAt = sub?.submittedAt ?? lmsSub?.submittedAt ?? null;
+        const feedback = mark?.remarks ?? sub?.feedback ?? lmsSub?.feedback ?? null;
+
+        let weightedContribution = 0;
+        if (marksObtained !== null && marksObtained !== undefined && !mark?.isAbsent && !mark?.isExcused) {
+          const itemWeight = item.weightagePercentage ?? item.weight ?? 0;
+          weightedContribution = Number(((marksObtained / (item.maxMarks || 1)) * itemWeight).toFixed(2));
+        }
+
+        const effectiveSubmission = sub || lmsSub
+          ? {
+              id: sub?.id ?? lmsSub?.id,
+              status: submissionStatus,
+              submittedAt,
+              contentText: sub?.contentText ?? lmsSub?.contentText,
+              attachmentUrl: sub?.attachmentUrl ?? lmsSub?.attachmentUrl,
+              grade: marksObtained,
+              feedback,
+            }
+          : (marksObtained !== null
+              ? {
+                  id: `mark-${s.id}`,
+                  status: 'GRADED',
+                  submittedAt: null,
+                  grade: marksObtained,
+                  feedback,
+                }
+              : null);
+
+        return {
+          id: s.id,
+          admissionNumber: s.admissionNumber,
+          rollNumber: s.rollNumber,
+          user: s.user,
+          mark: mark || (marksObtained !== null ? { marksObtained, isAbsent: false, isExcused: false, remarks: feedback } : null),
+          submission: effectiveSubmission,
+          marksObtained,
+          submissionStatus,
+          submittedAt,
+          feedback,
+          weightedContribution,
+          isLate: submissionStatus === 'LATE',
+          assignmentTitle: item.title,
+          categoryName: item.category.name,
+          maxMarks: item.maxMarks,
+        };
+      }),
     };
   }
 
@@ -1074,7 +1086,7 @@ export class AssessmentService {
 
     const isLate = Boolean(item.dueDate && new Date() > item.dueDate);
 
-    return prisma.assessmentSubmissionRecord.upsert({
+    const submissionRecord = await prisma.assessmentSubmissionRecord.upsert({
       where: {
         assessmentItemId_studentId: {
           assessmentItemId,
@@ -1096,6 +1108,36 @@ export class AssessmentService {
         status: isLate ? SubmissionStatus.LATE : SubmissionStatus.SUBMITTED,
       },
     });
+
+    // Also sync to LMS AssignmentSubmission if linked
+    const linkedAssignment = await prisma.assignment.findFirst({
+      where: { assessmentItemId },
+    });
+    if (linkedAssignment) {
+      await prisma.assignmentSubmission.upsert({
+        where: {
+          assignmentId_studentId: {
+            assignmentId: linkedAssignment.id,
+            studentId: student.id,
+          },
+        },
+        update: {
+          submittedAt: new Date(),
+          contentText: data.contentText,
+          attachmentUrl: data.attachmentUrl,
+          status: isLate ? 'LATE' : 'RESUBMITTED',
+        },
+        create: {
+          assignmentId: linkedAssignment.id,
+          studentId: student.id,
+          contentText: data.contentText,
+          attachmentUrl: data.attachmentUrl,
+          status: isLate ? 'LATE' : 'SUBMITTED',
+        },
+      });
+    }
+
+    return submissionRecord;
   }
 
   /**
@@ -1167,6 +1209,37 @@ export class AssessmentService {
           status: 'PUBLISHED',
         },
       });
+
+      // Synchronize to LMS AssignmentSubmission if linked
+      const linkedAssignment = await tx.assignment.findFirst({
+        where: { assessmentItemId: submission.assessmentItemId },
+      });
+      if (linkedAssignment) {
+        await tx.assignmentSubmission.upsert({
+          where: {
+            assignmentId_studentId: {
+              assignmentId: linkedAssignment.id,
+              studentId: submission.studentId,
+            },
+          },
+          update: {
+            grade: data.grade,
+            feedback: data.feedback,
+            gradedByUserId: user.id,
+            gradedAt: new Date(),
+            status: 'GRADED',
+          },
+          create: {
+            assignmentId: linkedAssignment.id,
+            studentId: submission.studentId,
+            grade: data.grade,
+            feedback: data.feedback,
+            gradedByUserId: user.id,
+            gradedAt: new Date(),
+            status: 'GRADED',
+          },
+        });
+      }
 
       return gradedSubmission;
     });
@@ -1467,6 +1540,14 @@ export class AssessmentService {
     await this.assertTeacherAuthorized(institutionId, user, data.subjectId, data.sectionId);
     await this.assertSchemeNotLockedForTeacher(data.subjectId, data.academicTermId, data.sectionId);
 
+    const scheme = await this.getAssessmentScheme(
+      institutionId,
+      user,
+      data.subjectId,
+      data.academicTermId,
+      data.sectionId
+    );
+
     // Recalculate all section results
     const results = await this.recalculateAllSectionResults(
       institutionId,
@@ -1475,15 +1556,27 @@ export class AssessmentService {
       data.academicTermId
     );
 
-    // Update status to SUBMITTED_TO_STUDENTS
+    // Update status to SUBMITTED_TO_STUDENTS, publish all assessment items and marks
     await prisma.$transaction(async (tx) => {
+      if (scheme?.id) {
+        await tx.assessmentItem.updateMany({
+          where: { category: { assessmentSchemeId: scheme.id } },
+          data: { isPublished: true },
+        });
+
+        await tx.studentAssessmentMark.updateMany({
+          where: { assessmentItem: { category: { assessmentSchemeId: scheme.id } } },
+          data: { status: 'PUBLISHED' },
+        });
+      }
+
       await tx.subjectResult.updateMany({
         where: {
           institutionId,
           subjectId: data.subjectId,
           sectionId: data.sectionId,
           academicTermId: data.academicTermId,
-          status: { in: [SubjectResultStatus.DRAFT, SubjectResultStatus.RETURNED_FOR_CORRECTION] },
+          status: { in: [SubjectResultStatus.DRAFT, SubjectResultStatus.RETURNED_FOR_CORRECTION, SubjectResultStatus.SUBMITTED_TO_STUDENTS] },
         },
         data: {
           status: SubjectResultStatus.SUBMITTED_TO_STUDENTS,
@@ -2018,123 +2111,6 @@ export class AssessmentService {
   }
 
   /**
-   * Get list of enrolled subjects with publication status for student / parent
-   */
-  static async getStudentEnrolledSubjects(institutionId: string, user: AuthenticatedUser) {
-    let studentIds: string[] = [];
-
-    if (user.role === UserRole.ROLE_STUDENT) {
-      const student = await prisma.studentProfile.findFirst({
-        where: { userId: user.id, institutionId },
-      });
-      if (student) studentIds.push(student.id);
-    } else if (user.role === UserRole.ROLE_PARENT) {
-      const parent = await prisma.parentProfile.findFirst({
-        where: { userId: user.id },
-      });
-      if (parent) {
-        const relations = await prisma.studentParentRelation.findMany({
-          where: { parentId: parent.id, student: { institutionId } },
-        });
-        studentIds = relations.map((r) => r.studentId);
-      }
-    }
-
-    if (studentIds.length === 0) return [];
-
-    const students = await prisma.studentProfile.findMany({
-      where: { id: { in: studentIds }, institutionId },
-      include: {
-        section: true,
-      },
-    });
-
-    const sectionIds = students.map((s) => s.sectionId).filter(Boolean) as string[];
-
-    // Find all courses or teacher assignments for these sections
-    const courses = await prisma.course.findMany({
-      where: {
-        institutionId,
-        sectionId: { in: sectionIds },
-      },
-      include: {
-        subject: true,
-        academicTerm: { include: { academicYear: true } },
-        section: { include: { classGrade: true } },
-      },
-    });
-
-    // Also find existing subject results for these students
-    const subjectResults = await prisma.subjectResult.findMany({
-      where: {
-        institutionId,
-        studentId: { in: studentIds },
-      },
-      include: {
-        subject: true,
-        academicTerm: { include: { academicYear: true } },
-        section: { include: { classGrade: true } },
-      },
-    });
-
-    const subjectsMap = new Map<string, any>();
-
-    for (const c of courses) {
-      const key = `${c.subjectId}:${c.academicTermId}`;
-      const result = subjectResults.find(
-        (sr) => sr.subjectId === c.subjectId && sr.academicTermId === c.academicTermId
-      );
-      subjectsMap.set(key, {
-        subjectId: c.subjectId,
-        subjectName: c.subject.name,
-        subjectCode: c.subject.code,
-        sectionId: c.sectionId,
-        sectionName: c.section.name,
-        className: c.section.classGrade.name,
-        academicTermId: c.academicTermId,
-        termName: c.academicTerm.name,
-        status: result?.status || 'DRAFT',
-        isPublished: Boolean(
-          result &&
-            ([
-              SubjectResultStatus.SUBMITTED_TO_STUDENTS,
-              SubjectResultStatus.SUBMITTED_TO_EXAM_DEPARTMENT,
-              SubjectResultStatus.UNDER_EXAM_REVIEW,
-              SubjectResultStatus.APPROVED,
-              SubjectResultStatus.OFFICIALLY_PUBLISHED,
-            ] as any[]).includes(result.status)
-        ),
-      });
-    }
-
-    for (const sr of subjectResults) {
-      const key = `${sr.subjectId}:${sr.academicTermId}`;
-      if (!subjectsMap.has(key)) {
-        subjectsMap.set(key, {
-          subjectId: sr.subjectId,
-          subjectName: sr.subject.name,
-          subjectCode: sr.subject.code,
-          sectionId: sr.sectionId,
-          sectionName: sr.section.name,
-          className: sr.section.classGrade.name,
-          academicTermId: sr.academicTermId,
-          termName: sr.academicTerm.name,
-          status: sr.status,
-          isPublished: ([
-            SubjectResultStatus.SUBMITTED_TO_STUDENTS,
-            SubjectResultStatus.SUBMITTED_TO_EXAM_DEPARTMENT,
-            SubjectResultStatus.UNDER_EXAM_REVIEW,
-            SubjectResultStatus.APPROVED,
-            SubjectResultStatus.OFFICIALLY_PUBLISHED,
-          ] as any[]).includes(sr.status),
-        });
-      }
-    }
-
-    return Array.from(subjectsMap.values());
-  }
-
-  /**
    * Get Unified Gradebook for a subject, section, and term
    */
   static async getGradebook(
@@ -2165,27 +2141,14 @@ export class AssessmentService {
       weightage: number;
       dueDate: Date | null;
       isPublished: boolean;
+      isLmsAssignment: boolean;
       assignmentId: string | null;
       examScheduleId: string | null;
       examSessionName: string | null;
     }> = [];
 
     for (const cat of scheme.categories) {
-      if (!cat.assessments || cat.assessments.length === 0) {
-        const autoItem = await prisma.assessmentItem.create({
-          data: {
-            assessmentCategoryId: cat.id,
-            title: cat.name,
-            maxMarks: 100,
-            weight: cat.weightagePercentage,
-            isPublished: true,
-            displayOrder: 0,
-          },
-        });
-        if (!cat.assessments) (cat as any).assessments = [];
-        (cat.assessments as any).push(autoItem);
-      }
-      for (const item of cat.assessments) {
+      for (const item of cat.assessments || []) {
         columns.push({
           id: item.id,
           categoryId: cat.id,
@@ -2197,6 +2160,7 @@ export class AssessmentService {
             (cat.assessments.length > 0 ? cat.weightagePercentage / cat.assessments.length : cat.weightagePercentage),
           dueDate: item.dueDate,
           isPublished: item.isPublished,
+          isLmsAssignment: Boolean((item as any).assignment),
           assignmentId: (item as any).assignment?.id ?? null,
           examScheduleId: item.examScheduleId ?? null,
           examSessionName: (item as any).examSchedule?.examSession?.name ?? null,
@@ -2214,6 +2178,11 @@ export class AssessmentService {
         },
         assessmentSubmissions: {
           where: { assessmentItem: { category: { assessmentSchemeId: scheme.id } } },
+        },
+        submissions: {
+          include: {
+            assignment: true,
+          },
         },
       },
       orderBy: [{ rollNumber: 'asc' }, { admissionNumber: 'asc' }],
@@ -2247,25 +2216,33 @@ export class AssessmentService {
       for (const col of columns) {
         const mark = s.assessmentMarks.find((m) => m.assessmentItemId === col.id);
         const sub = s.assessmentSubmissions.find((sb) => sb.assessmentItemId === col.id);
+        const lmsSub = col.assignmentId
+          ? s.submissions?.find((sb) => sb.assignmentId === col.assignmentId)
+          : null;
+
+        const effectiveMark = mark?.marksObtained ?? lmsSub?.grade ?? null;
 
         let contribution: number | null = null;
         if (
-          mark &&
-          mark.marksObtained !== null &&
-          mark.marksObtained !== undefined &&
-          !mark.isAbsent &&
-          !mark.isExcused
+          effectiveMark !== null &&
+          effectiveMark !== undefined &&
+          !mark?.isAbsent &&
+          !mark?.isExcused
         ) {
-          contribution = Number(((mark.marksObtained / col.maxMarks) * col.weightage).toFixed(2));
+          contribution = Number(((effectiveMark / col.maxMarks) * col.weightage).toFixed(2));
         }
 
+        const submissionStatus = sub?.status ?? (lmsSub?.status ? (lmsSub.status as string) : null);
+        const submittedAt = sub?.submittedAt ?? lmsSub?.submittedAt ?? null;
+        const remarks = mark?.remarks ?? lmsSub?.feedback ?? null;
+
         marksMap[col.id] = {
-          marksObtained: mark ? mark.marksObtained : null,
+          marksObtained: effectiveMark,
           isAbsent: mark ? mark.isAbsent : false,
           isExcused: mark ? mark.isExcused : false,
-          remarks: mark?.remarks,
-          submissionStatus: sub?.status ?? null,
-          submittedAt: sub?.submittedAt ?? null,
+          remarks,
+          submissionStatus,
+          submittedAt,
           contribution,
         };
       }
@@ -2276,10 +2253,12 @@ export class AssessmentService {
         studentId: s.id,
         rollNumber: s.rollNumber,
         admissionNumber: s.admissionNumber,
+        studentName: `${s.user.firstName} ${s.user.lastName}`.trim(),
         firstName: s.user.firstName,
         lastName: s.user.lastName,
         email: s.user.email,
         marks: marksMap,
+        status: res?.status ?? 'DRAFT',
         result: res
           ? {
               totalPercentage: res.totalPercentage,

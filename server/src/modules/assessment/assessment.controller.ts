@@ -309,15 +309,6 @@ export class AssessmentController {
     }
   }
 
-  static async getStudentEnrolledSubjects(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-    try {
-      const subjects = await AssessmentService.getStudentEnrolledSubjects(req.institutionId!, req.user!);
-      return sendSuccess(res, subjects, 200);
-    } catch (error) {
-      next(error);
-    }
-  }
-
   static async getGradebook(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const { subjectId, sectionId, academicTermId } = req.query as {

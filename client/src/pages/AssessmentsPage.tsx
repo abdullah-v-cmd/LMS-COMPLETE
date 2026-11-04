@@ -170,6 +170,8 @@ type GradebookColumn = {
   maxMarks: number;
   weightage?: number;
   weightagePercentage?: number;
+  categoryWeightage?: number;
+  isPublished?: boolean;
   isLmsAssignment?: boolean;
   assignmentId?: string | null;
   examScheduleId?: string | null;
@@ -522,6 +524,15 @@ export const AssessmentsPage: React.FC = () => {
           user: { firstName: string; lastName: string };
           mark: { marksObtained: number | null; isAbsent: boolean; isExcused: boolean; remarks: string | null } | null;
           submission: { id: string; submittedAt: string; contentText?: string; attachmentUrl?: string; status: string; grade?: number; feedback?: string } | null;
+          marksObtained?: number | null;
+          submissionStatus?: string | null;
+          submittedAt?: string | Date | null;
+          feedback?: string | null;
+          weightedContribution?: number;
+          isLate?: boolean;
+          assignmentTitle?: string;
+          categoryName?: string;
+          maxMarks?: number;
         }>;
       };
     },
@@ -539,10 +550,10 @@ export const AssessmentsPage: React.FC = () => {
       const drafts: Record<string, any> = {};
       marksRosterQuery.data.students.forEach((s) => {
         drafts[s.id] = {
-          marksObtained: s.mark?.marksObtained ?? null,
+          marksObtained: s.mark?.marksObtained ?? s.marksObtained ?? s.submission?.grade ?? null,
           isAbsent: s.mark?.isAbsent ?? false,
           isExcused: s.mark?.isExcused ?? false,
-          remarks: s.mark?.remarks ?? '',
+          remarks: s.mark?.remarks ?? s.feedback ?? s.submission?.feedback ?? '',
         };
       });
       setMarksDrafts(drafts);
@@ -592,17 +603,48 @@ export const AssessmentsPage: React.FC = () => {
   };
 
   const calculateStudentLiveStats = (student: GradebookStudent, columns: GradebookColumn[]) => {
-    let totalWeighted = 0;
-    for (const col of columns) {
-      const d = getStudentItemMark(student.studentId, col.id, student.marks[col.id]);
-      totalWeighted += computeCellContribution(
-        d.marksObtained,
-        col.maxMarks,
-        Number(col.weightagePercentage || col.weightage || 0),
-        d.isAbsent,
-        d.isExcused
-      );
+    // If no draft edits exist for this student and student already has a computed result from backend, use it directly
+    const hasAnyDraft = columns.some((col) => gradebookDrafts[`${student.studentId}:${col.id}`] !== undefined);
+    if (!hasAnyDraft && student.result && student.result.totalPercentage !== undefined && student.result.totalPercentage !== null) {
+      return {
+        totalWeighted: Number(student.result.totalPercentage.toFixed(2)),
+        letter: student.result.gradeLetter || '—',
+        gpa: student.result.gpa ?? 0.0,
+      };
     }
+
+    // Otherwise calculate grouped by category (supporting shared category weight, e.g. 15% Assignments)
+    const categoryGroups = new Map<string, { weightage: number; items: Array<{ mark: any; maxMarks: number; weightage: number }> }>();
+    for (const col of columns) {
+      const catId = col.categoryId || 'default';
+      const catWeight = Number(col.categoryWeightage ?? col.weightagePercentage ?? col.weightage ?? 0);
+      if (!categoryGroups.has(catId)) {
+        categoryGroups.set(catId, { weightage: catWeight, items: [] });
+      }
+      const d = getStudentItemMark(student.studentId, col.id, student.marks[col.id]);
+      categoryGroups.get(catId)!.items.push({
+        mark: d,
+        maxMarks: col.maxMarks,
+        weightage: Number(col.weightagePercentage || col.weightage || 0),
+      });
+    }
+
+    let totalWeighted = 0;
+    categoryGroups.forEach((group) => {
+      const graded = group.items.filter(
+        (i) => i.mark.marksObtained !== null && i.mark.marksObtained !== undefined && !i.mark.isExcused
+      );
+      if (graded.length === 0) return;
+
+      const sumPcts = graded.reduce((sum, i) => {
+        const obtained = i.mark.isAbsent ? 0 : Number(i.mark.marksObtained);
+        const itemPct = i.maxMarks > 0 ? (obtained / i.maxMarks) * 100 : 0;
+        return sum + itemPct;
+      }, 0);
+      const avgPct = sumPcts / graded.length;
+      totalWeighted += (avgPct / 100) * group.weightage;
+    });
+
     const score = Number(totalWeighted.toFixed(2));
     let letter = 'F';
     let gpa = 0.0;
@@ -1317,7 +1359,7 @@ export const AssessmentsPage: React.FC = () => {
     onSuccess: (data: any) => {
       setNotice(
         data?.data?.message ||
-          'Subject results forwarded to Exam Department. Direct teacher editing is now locked.'
+        'Subject results forwarded to Exam Department. Direct teacher editing is now locked.'
       );
       setError('');
       setShowExamDeptConfirmModal(false);
@@ -1533,11 +1575,10 @@ export const AssessmentsPage: React.FC = () => {
             <button
               type="button"
               onClick={() => setActiveTab('scheme')}
-              className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                activeTab === 'scheme'
+              className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${activeTab === 'scheme'
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-              }`}
+                }`}
             >
               <Layers className="w-4 h-4" />
               1. Assessment Scheme & Categories
@@ -1546,11 +1587,10 @@ export const AssessmentsPage: React.FC = () => {
             <button
               type="button"
               onClick={() => setActiveTab('items')}
-              className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                activeTab === 'items'
+              className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${activeTab === 'items'
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-              }`}
+                }`}
             >
               <FileCheck className="w-4 h-4" />
               2. Individual Assessments & Assignments
@@ -1559,11 +1599,10 @@ export const AssessmentsPage: React.FC = () => {
             <button
               type="button"
               onClick={() => setActiveTab('marks')}
-              className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                activeTab === 'marks'
+              className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${activeTab === 'marks'
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-              }`}
+                }`}
             >
               <Edit className="w-4 h-4" />
               3. Student Marks & Submissions
@@ -1572,11 +1611,10 @@ export const AssessmentsPage: React.FC = () => {
             <button
               type="button"
               onClick={() => setActiveTab('gradebook')}
-              className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                activeTab === 'gradebook'
+              className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${activeTab === 'gradebook'
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-              }`}
+                }`}
             >
               <Table className="w-4 h-4" />
               4. Unified Gradebook Matrix
@@ -1590,11 +1628,10 @@ export const AssessmentsPage: React.FC = () => {
             <button
               type="button"
               onClick={() => setActiveTab('results')}
-              className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                activeTab === 'results'
+              className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${activeTab === 'results'
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-              }`}
+                }`}
             >
               <Award className="w-4 h-4" />
               5. Final Results & Review
@@ -1606,11 +1643,10 @@ export const AssessmentsPage: React.FC = () => {
           <button
             type="button"
             onClick={() => setActiveTab('student_view')}
-            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
-              activeTab === 'student_view'
+            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${activeTab === 'student_view'
                 ? 'bg-indigo-600 text-white shadow-sm'
                 : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-            }`}
+              }`}
           >
             <Award className="w-4 h-4" />
             My Course Assessment Results
@@ -1635,11 +1671,10 @@ export const AssessmentsPage: React.FC = () => {
               {/* Total Percentage Gauge */}
               <div className="flex items-center gap-3">
                 <div
-                  className={`px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 border ${
-                    isSchemeValid
+                  className={`px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 border ${isSchemeValid
                       ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
                       : 'bg-rose-50 text-rose-800 border-rose-300'
-                  }`}
+                    }`}
                 >
                   {isSchemeValid ? (
                     <>
@@ -2137,10 +2172,11 @@ export const AssessmentsPage: React.FC = () => {
                         <th className="px-3 py-2.5">Roll No</th>
                         <th className="px-3 py-2.5">Admission No</th>
                         <th className="px-3 py-2.5">Student Name</th>
-                        <th className="px-3 py-2.5">Student Submission</th>
+                        <th className="px-3 py-2.5">Submission Details</th>
                         <th className="px-3 py-2.5 w-32">Marks Obtained</th>
                         <th className="px-3 py-2.5 w-24 text-center">Absent</th>
                         <th className="px-3 py-2.5 w-24 text-center">Excused</th>
+                        <th className="px-3 py-2.5 w-28 text-center">Weighted Wt.</th>
                         <th className="px-3 py-2.5">Teacher Remarks / Feedback</th>
                       </tr>
                     </thead>
@@ -2164,36 +2200,45 @@ export const AssessmentsPage: React.FC = () => {
                             {/* Submission status & grading button */}
                             <td className="px-3 py-2.5">
                               {st.submission ? (
-                                <div className="flex items-center gap-2">
-                                  <span
-                                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                      st.submission.status === 'LATE'
-                                        ? 'bg-rose-100 text-rose-800'
-                                        : 'bg-emerald-100 text-emerald-800'
-                                    }`}
-                                  >
-                                    {st.submission.status}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setGradingSubmission({
-                                        id: st.submission!.id,
-                                        studentName: `${st.user.firstName} ${st.user.lastName}`,
-                                        admissionNumber: st.admissionNumber,
-                                        contentText: st.submission?.contentText,
-                                        attachmentUrl: st.submission?.attachmentUrl,
-                                        currentGrade: st.submission?.grade,
-                                        currentFeedback: st.submission?.feedback,
-                                        maxMarks: marksRosterQuery.data?.assessment.maxMarks ?? 100,
-                                      });
-                                      setGradeInput(st.submission?.grade ?? 0);
-                                      setFeedbackInput(st.submission?.feedback ?? '');
-                                    }}
-                                    className="text-xs text-indigo-600 font-bold hover:underline"
-                                  >
-                                    Grade Work
-                                  </button>
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <span
+                                      className={`px-2 py-0.5 rounded text-[10px] font-bold ${st.submission.status === 'LATE'
+                                          ? 'bg-rose-100 text-rose-800'
+                                          : st.submission.status === 'GRADED'
+                                            ? 'bg-blue-100 text-blue-800'
+                                            : 'bg-emerald-100 text-emerald-800'
+                                        }`}
+                                    >
+                                      {st.submission.status}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setGradingSubmission({
+                                          id: st.submission!.id,
+                                          studentName: `${st.user.firstName} ${st.user.lastName}`,
+                                          admissionNumber: st.admissionNumber,
+                                          contentText: st.submission?.contentText,
+                                          attachmentUrl: st.submission?.attachmentUrl,
+                                          currentGrade: st.submission?.grade ?? (draft.marksObtained !== null ? draft.marksObtained : undefined),
+                                          currentFeedback: st.submission?.feedback ?? draft.remarks,
+                                          maxMarks: marksRosterQuery.data?.assessment.maxMarks ?? 100,
+                                        });
+                                        setGradeInput(st.submission?.grade ?? draft.marksObtained ?? 0);
+                                        setFeedbackInput(st.submission?.feedback ?? draft.remarks ?? '');
+                                      }}
+                                      className="text-xs text-indigo-600 font-bold hover:underline"
+                                    >
+                                      Grade Work
+                                    </button>
+                                  </div>
+                                  {st.submittedAt && (
+                                    <div className="text-[10px] text-slate-400">
+                                      {new Date(st.submittedAt).toLocaleDateString()}{' '}
+                                      {new Date(st.submittedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </div>
+                                  )}
                                 </div>
                               ) : (
                                 <span className="text-slate-400 italic">No submission</span>
@@ -2259,6 +2304,13 @@ export const AssessmentsPage: React.FC = () => {
                                 }}
                                 className="rounded text-amber-600 focus:ring-amber-500"
                               />
+                            </td>
+
+                            {/* Weighted Contribution */}
+                            <td className="px-3 py-2.5 text-center font-semibold text-indigo-700">
+                              {st.weightedContribution !== undefined && st.weightedContribution !== null
+                                ? `${st.weightedContribution}%`
+                                : '—'}
                             </td>
 
                             {/* Remarks */}
@@ -2327,15 +2379,14 @@ export const AssessmentsPage: React.FC = () => {
                     </h2>
                   </div>
                   <span
-                    className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
-                      sectionStatus === 'OFFICIALLY_PUBLISHED'
+                    className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${sectionStatus === 'OFFICIALLY_PUBLISHED'
                         ? 'bg-emerald-100 text-emerald-800'
                         : sectionStatus === 'SUBMITTED_TO_EXAM_DEPARTMENT'
-                        ? 'bg-amber-100 text-amber-800'
-                        : sectionStatus === 'SUBMITTED_TO_STUDENTS'
-                        ? 'bg-blue-100 text-blue-800'
-                        : 'bg-slate-100 text-slate-800'
-                    }`}
+                          ? 'bg-amber-100 text-amber-800'
+                          : sectionStatus === 'SUBMITTED_TO_STUDENTS'
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'bg-slate-100 text-slate-800'
+                      }`}
                   >
                     Status: {sectionStatus}
                   </span>
@@ -2378,18 +2429,17 @@ export const AssessmentsPage: React.FC = () => {
                     type="button"
                     disabled={unsavedGradebookCount === 0 || saveGradebookMutation.isPending}
                     onClick={() => saveGradebookMutation.mutate()}
-                    className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition shadow-sm ${
-                      unsavedGradebookCount > 0
+                    className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition shadow-sm ${unsavedGradebookCount > 0
                         ? 'bg-indigo-600 hover:bg-indigo-700 text-white animate-pulse'
                         : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                    }`}
+                      }`}
                   >
                     <Save className="w-4 h-4" />
                     {saveGradebookMutation.isPending
                       ? 'Saving...'
                       : unsavedGradebookCount > 0
-                      ? `Save Changes (${unsavedGradebookCount})`
-                      : 'All Saved'}
+                        ? `Save Changes (${unsavedGradebookCount})`
+                        : 'All Saved'}
                   </button>
                 )}
 
@@ -2478,6 +2528,15 @@ export const AssessmentsPage: React.FC = () => {
                                   Exam Sync
                                 </span>
                               )}
+                              {col.isPublished ? (
+                                <span className="inline-block bg-emerald-100 text-emerald-800 text-[9px] font-bold px-1.5 py-0.5 rounded uppercase" title="Published to students">
+                                  Published
+                                </span>
+                              ) : (
+                                <span className="inline-block bg-slate-100 text-slate-600 text-[9px] font-bold px-1.5 py-0.5 rounded uppercase" title="Draft / Unpublished">
+                                  Draft
+                                </span>
+                              )}
                             </div>
                             <div className="text-[10px] text-indigo-600 font-extrabold mt-0.5">
                               {col.weightagePercentage}% Wt · Max {col.maxMarks}
@@ -2493,12 +2552,12 @@ export const AssessmentsPage: React.FC = () => {
                                       ?.find((a) => a.id === col.id);
                                     setTargetAssessmentForCsv(
                                       item ||
-                                        ({
-                                          id: col.id,
-                                          title: col.title,
-                                          maxMarks: col.maxMarks,
-                                          category: { name: col.categoryName },
-                                        } as any)
+                                      ({
+                                        id: col.id,
+                                        title: col.title,
+                                        maxMarks: col.maxMarks,
+                                        category: { name: col.categoryName },
+                                      } as any)
                                     );
                                     setCsvRawText('');
                                     setCsvParsedRows([]);
@@ -2563,9 +2622,8 @@ export const AssessmentsPage: React.FC = () => {
                               return (
                                 <td
                                   key={col.id}
-                                  className={`px-2.5 py-2 text-center border-r border-slate-200 transition ${
-                                    isDirty ? 'bg-amber-50/60' : ''
-                                  }`}
+                                  className={`px-2.5 py-2 text-center border-r border-slate-200 transition ${isDirty ? 'bg-amber-50/60' : ''
+                                    }`}
                                 >
                                   <div className="flex flex-col items-center gap-1">
                                     <div className="flex items-center gap-1">
@@ -2591,11 +2649,10 @@ export const AssessmentsPage: React.FC = () => {
                                           }));
                                         }}
                                         placeholder="—"
-                                        className={`w-16 text-center text-xs font-bold text-slate-900 rounded px-1.5 py-1 border transition focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-40 ${
-                                          isDirty
+                                        className={`w-16 text-center text-xs font-bold text-slate-900 rounded px-1.5 py-1 border transition focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-40 ${isDirty
                                             ? 'border-amber-400 bg-amber-50'
                                             : 'border-slate-300 bg-white'
-                                        }`}
+                                          }`}
                                       />
                                       <span className="text-[10px] text-slate-400 font-medium">/{col.maxMarks}</span>
                                     </div>
@@ -2678,15 +2735,14 @@ export const AssessmentsPage: React.FC = () => {
                             {/* Status */}
                             <td className="px-3 py-2.5 text-center bg-slate-50/50">
                               <span
-                                className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
-                                  st.status === 'OFFICIALLY_PUBLISHED'
+                                className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${st.status === 'OFFICIALLY_PUBLISHED'
                                     ? 'bg-emerald-100 text-emerald-800'
                                     : st.status === 'SUBMITTED_TO_EXAM_DEPARTMENT'
-                                    ? 'bg-amber-100 text-amber-800'
-                                    : st.status === 'SUBMITTED_TO_STUDENTS'
-                                    ? 'bg-blue-100 text-blue-800'
-                                    : 'bg-slate-100 text-slate-700'
-                                }`}
+                                      ? 'bg-amber-100 text-amber-800'
+                                      : st.status === 'SUBMITTED_TO_STUDENTS'
+                                        ? 'bg-blue-100 text-blue-800'
+                                        : 'bg-slate-100 text-slate-700'
+                                  }`}
                               >
                                 {st.status === 'SUBMITTED_TO_STUDENTS' ? 'GRADE IN PROGRESS' : st.status}
                               </span>
@@ -2862,22 +2918,20 @@ export const AssessmentsPage: React.FC = () => {
                               setSelectedAssignmentIndex(matchIndex);
                             }
                           }}
-                          className={`p-3 rounded-xl border text-xs cursor-pointer transition ${
-                            isCurrent
+                          className={`p-3 rounded-xl border text-xs cursor-pointer transition ${isCurrent
                               ? 'bg-indigo-950/70 border-indigo-500 text-white'
                               : 'bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800'
-                          }`}
+                            }`}
                         >
                           <div className="font-bold flex items-center justify-between">
                             <span>{sub.subjectName}</span>
                             <span
-                              className={`text-[10px] px-2 py-0.5 rounded font-black uppercase ${
-                                sub.status === 'OFFICIALLY_PUBLISHED'
+                              className={`text-[10px] px-2 py-0.5 rounded font-black uppercase ${sub.status === 'OFFICIALLY_PUBLISHED'
                                   ? 'bg-emerald-900 text-emerald-200'
                                   : sub.status === 'SUBMITTED_TO_EXAM_DEPARTMENT'
-                                  ? 'bg-amber-900 text-amber-200'
-                                  : 'bg-slate-700 text-slate-300'
-                              }`}
+                                    ? 'bg-amber-900 text-amber-200'
+                                    : 'bg-slate-700 text-slate-300'
+                                }`}
                             >
                               {sub.status}
                             </span>
@@ -2900,15 +2954,14 @@ export const AssessmentsPage: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <h2 className="text-lg font-bold text-slate-900">Automatic Course Weighted Results</h2>
                   <span
-                    className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
-                      sectionStatus === 'OFFICIALLY_PUBLISHED'
+                    className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${sectionStatus === 'OFFICIALLY_PUBLISHED'
                         ? 'bg-emerald-100 text-emerald-800'
                         : sectionStatus === 'SUBMITTED_TO_EXAM_DEPARTMENT'
-                        ? 'bg-amber-100 text-amber-800'
-                        : sectionStatus === 'SUBMITTED_TO_STUDENTS'
-                        ? 'bg-blue-100 text-blue-800'
-                        : 'bg-slate-100 text-slate-800'
-                    }`}
+                          ? 'bg-amber-100 text-amber-800'
+                          : sectionStatus === 'SUBMITTED_TO_STUDENTS'
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'bg-slate-100 text-slate-800'
+                      }`}
                   >
                     Status: {sectionStatus}
                   </span>
@@ -3787,11 +3840,10 @@ export const AssessmentsPage: React.FC = () => {
                       <div
                         key={sched.id}
                         onClick={() => setSelectedExamScheduleId(sched.id)}
-                        className={`cursor-pointer rounded-xl p-3 border transition text-xs flex items-center justify-between gap-3 ${
-                          isSelected
+                        className={`cursor-pointer rounded-xl p-3 border transition text-xs flex items-center justify-between gap-3 ${isSelected
                             ? 'bg-purple-50 border-purple-400 ring-2 ring-purple-400/20 shadow-sm'
                             : 'bg-white border-slate-200 hover:border-purple-200 hover:bg-slate-50/50'
-                        }`}
+                          }`}
                       >
                         <div className="space-y-0.5">
                           <div className="flex items-center gap-2">

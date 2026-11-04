@@ -157,7 +157,6 @@ router.post(
 );
 
 // Student / Parent Portal View
-router.get('/student/subjects', AssessmentController.getStudentEnrolledSubjects);
 router.get('/student-result', AssessmentController.getStudentSubjectResult);
 
 // Exam Schedule Integration & Sync

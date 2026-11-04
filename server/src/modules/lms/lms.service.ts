@@ -871,11 +871,39 @@ export class LmsService {
     });
 
     // Synchronize to AssessmentSubmissionRecord if linked to AssessmentItem
-    if (assignment.assessmentItemId) {
+    let linkedAssessmentItemId = assignment.assessmentItemId;
+    if (!linkedAssessmentItemId && assignment.courseId) {
+      const course = await prisma.course.findUnique({
+        where: { id: assignment.courseId },
+      });
+      if (course?.academicTermId && course?.subjectId && course?.sectionId) {
+        const item = await prisma.assessmentItem.findFirst({
+          where: {
+            title: assignment.title,
+            category: {
+              assessmentScheme: {
+                subjectId: course.subjectId,
+                sectionId: course.sectionId,
+                academicTermId: course.academicTermId,
+              },
+            },
+          },
+        });
+        if (item) {
+          await prisma.assignment.update({
+            where: { id: assignment.id },
+            data: { assessmentItemId: item.id },
+          });
+          linkedAssessmentItemId = item.id;
+        }
+      }
+    }
+
+    if (linkedAssessmentItemId) {
       await prisma.assessmentSubmissionRecord.upsert({
         where: {
           assessmentItemId_studentId: {
-            assessmentItemId: assignment.assessmentItemId,
+            assessmentItemId: linkedAssessmentItemId,
             studentId: studentProfile.id,
           },
         },
@@ -886,7 +914,7 @@ export class LmsService {
           status: isLate ? SubmissionStatus.LATE : SubmissionStatus.RESUBMITTED,
         },
         create: {
-          assessmentItemId: assignment.assessmentItemId,
+          assessmentItemId: linkedAssessmentItemId,
           studentId: studentProfile.id,
           submittedAt: new Date(),
           contentText: data.contentText,
@@ -976,9 +1004,34 @@ export class LmsService {
     });
 
     // Synchronize to authoritative assessment mark and recalculate!
-    if (submission.assignment.assessmentItemId && course.academicTermId && course.subjectId && course.sectionId) {
-      const assessmentItemId = submission.assignment.assessmentItemId;
-      const schemeId = submission.assignment.assessmentItem?.category.assessmentSchemeId;
+    let assessmentItemId = submission.assignment.assessmentItemId;
+    let schemeId = submission.assignment.assessmentItem?.category.assessmentSchemeId;
+
+    if (!assessmentItemId && course.academicTermId && course.subjectId && course.sectionId) {
+      const foundItem = await prisma.assessmentItem.findFirst({
+        where: {
+          title: submission.assignment.title,
+          category: {
+            assessmentScheme: {
+              subjectId: course.subjectId,
+              sectionId: course.sectionId,
+              academicTermId: course.academicTermId,
+            },
+          },
+        },
+        include: { category: true },
+      });
+      if (foundItem) {
+        await prisma.assignment.update({
+          where: { id: submission.assignment.id },
+          data: { assessmentItemId: foundItem.id },
+        });
+        assessmentItemId = foundItem.id;
+        schemeId = foundItem.category.assessmentSchemeId;
+      }
+    }
+
+    if (assessmentItemId && course.academicTermId && course.subjectId && course.sectionId) {
 
       await prisma.$transaction(async (tx) => {
         await tx.studentAssessmentMark.upsert({
