@@ -34,6 +34,7 @@ import {
   Download,
   Pencil,
   ShieldAlert,
+  Info,
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
@@ -244,6 +245,12 @@ export const AssessmentsPage: React.FC = () => {
     roleUpper.includes('TEACHER') || roleUpper.includes('ASSISTANT');
   const isStudent = roleUpper.includes('STUDENT');
   const isParent = roleUpper.includes('PARENT');
+  const isExamDept =
+    roleUpper.includes('EXAM') ||
+    roleUpper.includes('ADMIN') ||
+    roleUpper.includes('HEAD') ||
+    roleUpper.includes('AUDITOR');
+  const isStaff = isTeacher || isExamDept;
 
   // Navigation tabs
   const [activeTab, setActiveTab] = useState<
@@ -258,8 +265,11 @@ export const AssessmentsPage: React.FC = () => {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
 
-  // Selected assignment context for teacher
+  // Selected assignment context for teacher / exam dept / admin
   const [selectedAssignmentIndex, setSelectedAssignmentIndex] = useState(0);
+
+  // Selected enrolled subject for student / parent
+  const [selectedStudentSubjectIndex, setSelectedStudentSubjectIndex] = useState(0);
 
   // Queries
   const assignmentsQuery = useQuery({
@@ -268,10 +278,35 @@ export const AssessmentsPage: React.FC = () => {
       const res = await apiClient.get('/assessments/teacher/assignments');
       return (res.data.data as TeacherAssignment[]) || [];
     },
-    enabled: isTeacher,
+    enabled: isStaff,
   });
 
   const currentAssignment = assignmentsQuery.data?.[selectedAssignmentIndex] || null;
+
+  // Student Enrolled Subjects Query
+  const studentSubjectsQuery = useQuery({
+    queryKey: ['student-enrolled-subjects'],
+    queryFn: async () => {
+      const res = await apiClient.get('/assessments/student/subjects');
+      return (
+        (res.data.data as Array<{
+          subjectId: string;
+          subjectName: string;
+          subjectCode: string;
+          sectionId: string;
+          sectionName: string;
+          className: string;
+          academicTermId: string;
+          termName: string;
+          status: string;
+          isPublished: boolean;
+        }>) || []
+      );
+    },
+    enabled: isStudent || isParent,
+  });
+
+  const currentStudentSubject = studentSubjectsQuery.data?.[selectedStudentSubjectIndex] || null;
 
   // Scheme Query
   const schemeQuery = useQuery({
@@ -314,7 +349,7 @@ export const AssessmentsPage: React.FC = () => {
       });
       return res.data.data as { scheme: AssessmentScheme; results: SectionSubjectResult[] };
     },
-    enabled: Boolean(currentAssignment) && (activeTab === 'results' || activeTab === 'marks'),
+    enabled: Boolean(currentAssignment) && (activeTab === 'results' || activeTab === 'marks' || activeTab === 'gradebook'),
   });
 
   // Gradebook Matrix Query
@@ -374,22 +409,24 @@ export const AssessmentsPage: React.FC = () => {
         }>;
       };
     },
-    enabled: false,
+    enabled: isExamDept,
   });
 
   // Student Result Query
   const studentResultQuery = useQuery({
     queryKey: [
       'student-subject-result',
-      currentAssignment?.subjectId,
-      currentAssignment?.academicTermId,
+      currentStudentSubject?.subjectId || currentAssignment?.subjectId,
+      currentStudentSubject?.academicTermId || currentAssignment?.academicTermId,
     ],
     queryFn: async () => {
-      if (!currentAssignment) return null;
+      const subId = currentStudentSubject?.subjectId || currentAssignment?.subjectId;
+      const termId = currentStudentSubject?.academicTermId || currentAssignment?.academicTermId;
+      if (!subId || !termId) return null;
       const res = await apiClient.get('/assessments/student-result', {
         params: {
-          subjectId: currentAssignment.subjectId,
-          academicTermId: currentAssignment.academicTermId,
+          subjectId: subId,
+          academicTermId: termId,
         },
       });
       return res.data.data;
@@ -446,6 +483,7 @@ export const AssessmentsPage: React.FC = () => {
     }
   }, [schemeQuery.data]);
 
+
   const totalWeight = useMemo(() => {
     return categoriesDraft.reduce((s, c) => s + (Number(c.weightagePercentage) || 0), 0);
   }, [categoriesDraft]);
@@ -454,6 +492,19 @@ export const AssessmentsPage: React.FC = () => {
 
   // Selected assessment item for marks roster or grading
   const [selectedItemId, setSelectedItemId] = useState<string>('');
+
+  // Auto-select first assessment item for Tab 3 (Student Marks & Submissions)
+  React.useEffect(() => {
+    if (schemeQuery.data?.categories) {
+      const allItems = schemeQuery.data.categories.flatMap((cat: any) => cat.assessments || []);
+      if (allItems.length > 0) {
+        if (!selectedItemId || !allItems.some((item: any) => item.id === selectedItemId)) {
+          setSelectedItemId(allItems[0].id);
+        }
+      }
+    }
+  }, [schemeQuery.data, selectedItemId]);
+
 
   const marksRosterQuery = useQuery({
     queryKey: ['assessment-marks-roster', selectedItemId, currentAssignment?.sectionId],
@@ -948,8 +999,8 @@ export const AssessmentsPage: React.FC = () => {
       setNewItemAttachmentUrl('');
       setNewItemExamScheduleId('');
       queryClient.invalidateQueries({ queryKey: ['assessment-scheme'] });
-      queryClient.invalidateQueries({ queryKey: ['unified-gradebook'] });
-      queryClient.invalidateQueries({ queryKey: ['section-results'] });
+      queryClient.invalidateQueries({ queryKey: ['assessment-gradebook'] });
+      queryClient.invalidateQueries({ queryKey: ['assessment-section-results'] });
     },
     onError: (err: any) => {
       setError(err?.response?.data?.message || err.message || 'Failed to create item');
@@ -978,8 +1029,8 @@ export const AssessmentsPage: React.FC = () => {
       setShowEditItemModal(false);
       setEditingItem(null);
       queryClient.invalidateQueries({ queryKey: ['assessment-scheme'] });
-      queryClient.invalidateQueries({ queryKey: ['unified-gradebook'] });
-      queryClient.invalidateQueries({ queryKey: ['section-results'] });
+      queryClient.invalidateQueries({ queryKey: ['assessment-gradebook'] });
+      queryClient.invalidateQueries({ queryKey: ['assessment-section-results'] });
       queryClient.invalidateQueries({ queryKey: ['assessment-marks-roster'] });
     },
     onError: (err: any) => {
@@ -1004,8 +1055,8 @@ export const AssessmentsPage: React.FC = () => {
         setSelectedItemId('');
       }
       queryClient.invalidateQueries({ queryKey: ['assessment-scheme'] });
-      queryClient.invalidateQueries({ queryKey: ['unified-gradebook'] });
-      queryClient.invalidateQueries({ queryKey: ['section-results'] });
+      queryClient.invalidateQueries({ queryKey: ['assessment-gradebook'] });
+      queryClient.invalidateQueries({ queryKey: ['assessment-section-results'] });
       queryClient.invalidateQueries({ queryKey: ['assessment-marks-roster'] });
     },
     onError: (err: any) => {
@@ -1241,6 +1292,9 @@ export const AssessmentsPage: React.FC = () => {
       setNotice(data?.data?.message || 'Marks published to students. You may still make adjustments.');
       setError('');
       queryClient.invalidateQueries({ queryKey: ['assessment-section-results'] });
+      queryClient.invalidateQueries({ queryKey: ['assessment-gradebook'] });
+      queryClient.invalidateQueries({ queryKey: ['student-subject-result'] });
+      queryClient.invalidateQueries({ queryKey: ['student-enrolled-subjects'] });
     },
     onError: (err: any) => {
       setError(err?.response?.data?.message || err.message || 'Failed to submit marks to students');
@@ -1268,6 +1322,9 @@ export const AssessmentsPage: React.FC = () => {
       setError('');
       setShowExamDeptConfirmModal(false);
       queryClient.invalidateQueries({ queryKey: ['assessment-section-results'] });
+      queryClient.invalidateQueries({ queryKey: ['assessment-gradebook'] });
+      queryClient.invalidateQueries({ queryKey: ['student-subject-result'] });
+      queryClient.invalidateQueries({ queryKey: ['exam-dept-dashboard'] });
     },
     onError: (err: any) => {
       setError(err?.response?.data?.message || err.message || 'Failed to forward to Exam Department');
@@ -1317,6 +1374,9 @@ export const AssessmentsPage: React.FC = () => {
       setError('');
       queryClient.invalidateQueries({ queryKey: ['exam-dept-dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['assessment-section-results'] });
+      queryClient.invalidateQueries({ queryKey: ['assessment-gradebook'] });
+      queryClient.invalidateQueries({ queryKey: ['student-subject-result'] });
+      queryClient.invalidateQueries({ queryKey: ['student-enrolled-subjects'] });
     },
     onError: (err: any) => {
       setError(err?.response?.data?.message || err.message || 'Action failed');
@@ -1374,14 +1434,14 @@ export const AssessmentsPage: React.FC = () => {
     },
   });
 
-  if (!isTeacher && !isStudent && !isParent) {
+  if (!isStaff && !isStudent && !isParent) {
     return (
       <div className="p-8 max-w-3xl mx-auto">
         <div className="bg-rose-50 border border-rose-200 rounded-2xl p-8 text-center shadow-sm">
           <ShieldAlert className="w-12 h-12 text-rose-500 mx-auto mb-3" />
           <h2 className="text-xl font-bold text-rose-900">Access Restricted</h2>
           <p className="mt-2 text-sm text-rose-700 max-w-md mx-auto">
-            Course assessment schemes, grading, and continuous results are strictly managed by the authorized Subject Teacher. Administrators and Exam Department staff do not have direct access.
+            You do not have permission to access the assessment portal.
           </p>
         </div>
       </div>
@@ -1407,7 +1467,7 @@ export const AssessmentsPage: React.FC = () => {
         {/* Teacher Assigned Subject Selector */}
         {assignmentsQuery.data && assignmentsQuery.data.length > 0 && (
           <div className="flex items-center gap-3 bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Assigned Subject:</span>
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">{isExamDept ? 'Selected Subject / Section:' : 'Assigned Subject:'}</span>
             <select
               value={selectedAssignmentIndex}
               onChange={(e) => setSelectedAssignmentIndex(Number(e.target.value))}
@@ -1974,6 +2034,22 @@ export const AssessmentsPage: React.FC = () => {
                   Select an assessment item to record marks or review student assignment submissions.
                 </p>
               </div>
+            </div>
+
+            {/* Explanation box: What this tab is and why it was created */}
+            <div className="bg-indigo-50/70 border border-indigo-200 rounded-xl p-3.5 text-xs text-indigo-950 flex items-start gap-2.5">
+              <Info className="w-4 h-4 text-indigo-600 mt-0.5 shrink-0" />
+              <div className="space-y-1">
+                <p className="font-bold text-indigo-900">
+                  Detailed Item Grading Desk
+                </p>
+                <p className="text-slate-600">
+                  This tab lets you evaluate <strong>one specific assessment item</strong> at a time (e.g. an Assignment, Quiz, or Exam). You can inspect student submitted files/text, record scores, mark Absent or Excused, and write qualitative teacher feedback.
+                </p>
+                <p className="text-slate-600">
+                  <strong>Looking for overall subject grades?</strong> Switch to <strong>Tab 4: Unified Gradebook Matrix</strong> to see all categories and student weighted contributions side-by-side in a master spreadsheet.
+                </p>
+              </div>
 
               {/* Assessment Item Selector */}
               <div className="flex items-center gap-2">
@@ -2209,8 +2285,25 @@ export const AssessmentsPage: React.FC = () => {
                 </div>
               </div>
             ) : (
-              <div className="py-10 text-center text-xs text-slate-400">
-                Please select an assessment item from the dropdown above to begin marks entry.
+              <div className="py-12 text-center text-xs text-slate-500 space-y-3">
+                <AlertCircle className="w-8 h-8 text-indigo-400 mx-auto" />
+                <p className="font-semibold text-slate-700">No Assessment Item Selected</p>
+                <p className="max-w-md mx-auto text-slate-500">
+                  Please select an assessment item from the dropdown above to record marks, or add a new assessment item under your scheme in Tab 2.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (schemeQuery.data?.categories?.[0]) {
+                      setNewItemCategoryId(schemeQuery.data.categories[0].id || "");
+                    }
+                    setShowItemModal(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-sm transition"
+                >
+                  <Plus className="w-4 h-4" />
+                  Create Assessment Item
+                </button>
               </div>
             )}
           </div>
@@ -2673,6 +2766,134 @@ export const AssessmentsPage: React.FC = () => {
       {/* ============================================================== */}
       {activeTab === 'results' && (
         <div className="space-y-6">
+          {/* Exam Department Moderation Console */}
+          {isExamDept && (
+            <div className="bg-slate-900 text-white rounded-2xl p-5 space-y-4 shadow-lg border border-slate-800">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-5 h-5 text-indigo-400" />
+                    <h3 className="font-black text-sm text-white uppercase tracking-wider">
+                      Examination Department Moderation & Approval Console
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Review forwarded section results, conduct grade moderation, and officially publish results to student transcripts.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2.5">
+                  {sectionStatus === 'SUBMITTED_TO_EXAM_DEPARTMENT' && (
+                    <>
+                      <button
+                        type="button"
+                        disabled={examDeptReviewMutation.isPending}
+                        onClick={() => {
+                          if (!currentAssignment) return;
+                          examDeptReviewMutation.mutate({
+                            subjectId: currentAssignment.subjectId,
+                            sectionId: currentAssignment.sectionId,
+                            academicTermId: currentAssignment.academicTermId,
+                            status: 'OFFICIALLY_PUBLISHED',
+                            notes: 'Approved and officially published by Examination Department',
+                          });
+                        }}
+                        className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition shadow-sm"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        {examDeptReviewMutation.isPending ? 'Publishing...' : 'Approve & Officially Publish'}
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={examDeptReviewMutation.isPending}
+                        onClick={() => {
+                          if (!currentAssignment) return;
+                          examDeptReviewMutation.mutate({
+                            subjectId: currentAssignment.subjectId,
+                            sectionId: currentAssignment.sectionId,
+                            academicTermId: currentAssignment.academicTermId,
+                            status: 'RETURNED_FOR_CORRECTION',
+                            notes: 'Returned by Examination Department for teacher review and correction',
+                          });
+                        }}
+                        className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-rose-300 bg-rose-950/80 hover:bg-rose-900 border border-rose-800 rounded-xl transition shadow-sm"
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                        Return to Teacher
+                      </button>
+                    </>
+                  )}
+
+                  {sectionStatus === 'OFFICIALLY_PUBLISHED' && (
+                    <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                      Officially Published to Transcripts
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Submissions queue from other sections */}
+              {examDeptQuery.data?.submissions && examDeptQuery.data.submissions.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    All Institution Section Submissions ({examDeptQuery.data.submissions.length}):
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                    {examDeptQuery.data.submissions.map((sub, idx) => {
+                      const isCurrent =
+                        currentAssignment &&
+                        currentAssignment.subjectId === sub.subjectId &&
+                        currentAssignment.sectionId === sub.sectionId &&
+                        currentAssignment.academicTermId === sub.academicTermId;
+
+                      return (
+                        <div
+                          key={idx}
+                          onClick={() => {
+                            const matchIndex = assignmentsQuery.data?.findIndex(
+                              (a) =>
+                                a.subjectId === sub.subjectId &&
+                                a.sectionId === sub.sectionId &&
+                                a.academicTermId === sub.academicTermId
+                            );
+                            if (matchIndex !== undefined && matchIndex !== -1) {
+                              setSelectedAssignmentIndex(matchIndex);
+                            }
+                          }}
+                          className={`p-3 rounded-xl border text-xs cursor-pointer transition ${
+                            isCurrent
+                              ? 'bg-indigo-950/70 border-indigo-500 text-white'
+                              : 'bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800'
+                          }`}
+                        >
+                          <div className="font-bold flex items-center justify-between">
+                            <span>{sub.subjectName}</span>
+                            <span
+                              className={`text-[10px] px-2 py-0.5 rounded font-black uppercase ${
+                                sub.status === 'OFFICIALLY_PUBLISHED'
+                                  ? 'bg-emerald-900 text-emerald-200'
+                                  : sub.status === 'SUBMITTED_TO_EXAM_DEPARTMENT'
+                                  ? 'bg-amber-900 text-amber-200'
+                                  : 'bg-slate-700 text-slate-300'
+                              }`}
+                            >
+                              {sub.status}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-400 mt-1">
+                            {sub.className} ({sub.sectionName}) · {sub.studentsCount} Students
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-5">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4">
               <div>
@@ -2789,6 +3010,29 @@ export const AssessmentsPage: React.FC = () => {
       {/* ============================================================== */}
       {activeTab === 'student_view' && (
         <div className="space-y-6">
+          {/* Enrolled Subject Selector for Students & Parents */}
+          {studentSubjectsQuery.data && studentSubjectsQuery.data.length > 0 && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+              <div className="flex items-center gap-2">
+                <Award className="w-5 h-5 text-indigo-600" />
+                <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">
+                  Enrolled Subject:
+                </span>
+              </div>
+              <select
+                value={selectedStudentSubjectIndex}
+                onChange={(e) => setSelectedStudentSubjectIndex(Number(e.target.value))}
+                className="text-sm font-semibold text-slate-800 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                {studentSubjectsQuery.data.map((subj, idx) => (
+                  <option key={`${subj.subjectId}-${subj.academicTermId}`} value={idx}>
+                    {subj.subjectName} ({subj.subjectCode}) — {subj.className} · {subj.termName} {subj.isPublished ? '✓ (Published)' : '(Pending)'}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {studentResultQuery.data ? (
             <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-5">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 pb-4">
