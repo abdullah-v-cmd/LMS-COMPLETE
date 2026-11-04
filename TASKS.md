@@ -370,6 +370,7 @@
     - `tests/dynamic-category-gradebook.test.ts` (8/8 passed)
     - `tests/exam-to-assessment-push-marks.test.ts` (10/10 passed)
     - `tests/master-lms-assessment-integration.test.ts` (33/33 passed)
-    - Full server test run: 39 test files passed (249/249 tests passing)
+    - 	ests/lms-assignment-assessment-sync.test.ts (7/7 passed)
+    - Full server test run: 40 test files passed (256/256 tests passing)
     - `npm --prefix server run build` passed with 0 errors
     - `npm --prefix client run build` passed with 0 errors

@@ -75,6 +75,13 @@ router.put(
   LmsController.updateAssignment
 );
 
+router.delete(
+  '/assignments/:id',
+  requirePermission(PERMISSIONS.ASSIGNMENT_CREATE),
+  logAuditEvent('ASSIGNMENT_DELETED', 'Assignment'),
+  LmsController.deleteAssignment
+);
+
 router.get(
   '/assignments/:id/submissions',
   requirePermission(PERMISSIONS.ASSIGNMENT_GRADE),

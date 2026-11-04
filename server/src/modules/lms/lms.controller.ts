@@ -68,6 +68,15 @@ export class LmsController {
     }
   }
 
+  static async deleteAssignment(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const result = await LmsService.deleteAssignment(req.params.id, req.institutionId!, req.user!);
+      return sendSuccess(res, result, 200);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   static async getSubmissions(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const submissions = await LmsService.getSubmissions(req.params.id, req.institutionId!);

@@ -284,6 +284,56 @@ export class LmsService {
       throw { status: 404, message: 'Course not found in this institution' };
     }
 
+    // Teacher authorization check
+    if (user && (user.role === UserRole.ROLE_SUBJECT_TEACHER || user.role === UserRole.ROLE_CLASS_TEACHER || user.role === UserRole.ROLE_TEACHING_ASSISTANT)) {
+      const tp = await prisma.teacherProfile.findFirst({ where: { userId: user.id, institutionId } });
+      if (!tp) {
+        throw { status: 403, message: 'Teacher profile not found in this institution' };
+      }
+      if (course.teacherId && course.teacherId !== tp.id) {
+        const assigned = await prisma.teacherAssignment.findFirst({
+          where: { teacherId: tp.id, subjectId: course.subjectId, sectionId: course.sectionId },
+        });
+        if (!assigned) {
+          throw { status: 403, message: 'Access Denied: You are not authorized to create assignments for this course' };
+        }
+      }
+    }
+
+    // Check lock: if subject result is submitted to Exam Dept, block assignment creation
+    if (course.academicTermId && course.subjectId && course.sectionId) {
+      const activeLockedResults = await prisma.subjectResult.findFirst({
+        where: {
+          subjectId: course.subjectId,
+          sectionId: course.sectionId,
+          academicTermId: course.academicTermId,
+          status: {
+            in: [
+              SubjectResultStatus.SUBMITTED_TO_EXAM_DEPARTMENT,
+              SubjectResultStatus.UNDER_EXAM_REVIEW,
+              SubjectResultStatus.APPROVED,
+              SubjectResultStatus.OFFICIALLY_PUBLISHED,
+            ],
+          },
+        },
+      });
+      if (activeLockedResults) {
+        throw {
+          status: 403,
+          message: 'Assignment creation is locked because subject results have been submitted to the Examination Department.',
+        };
+      }
+    }
+
+    // Idempotent: check if an assignment with identical course and title already exists
+    const existing = await prisma.assignment.findFirst({
+      where: { courseId: data.courseId, title: data.title },
+      include: { assessmentItem: true },
+    });
+    if (existing) {
+      return existing;
+    }
+
     let finalInstructions = data.instructions;
     const metadataTags: string[] = [];
     if (data.weightagePercent !== undefined && data.weightagePercent !== null) {
@@ -296,121 +346,131 @@ export class LmsService {
       finalInstructions = `${metadataTags.join(' ')}\n\n${finalInstructions}`;
     }
 
-    // Automatically create or link authoritative AssessmentItem in AssessmentScheme
-    let assessmentItemId: string | null = null;
-    if (course.academicTermId && course.subjectId && course.sectionId) {
-      let scheme = await prisma.assessmentScheme.findFirst({
-        where: {
-          institutionId,
-          subjectId: course.subjectId,
-          academicTermId: course.academicTermId,
-          sectionId: course.sectionId,
-        },
-        include: { categories: true },
-      });
+    // Transactional creation of both AssessmentItem and Assignment
+    return prisma.$transaction(async (tx) => {
+      let assessmentItemId: string | null = null;
 
-      if (!scheme) {
-        let creatorId = user?.id;
-        if (!creatorId && course.teacherId) {
-          const tp = await prisma.teacherProfile.findUnique({ where: { id: course.teacherId } });
-          creatorId = tp?.userId;
-        }
-        if (!creatorId) {
-          const adminUser = await prisma.user.findFirst({ where: { institutionId } });
-          creatorId = adminUser?.id || 'system';
-        }
-
-        scheme = await prisma.assessmentScheme.create({
-          data: {
+      if (course.academicTermId && course.subjectId && course.sectionId) {
+        // Find section-specific scheme or shared scheme (sectionId is null)
+        let scheme = await tx.assessmentScheme.findFirst({
+          where: {
             institutionId,
-            academicTermId: course.academicTermId,
             subjectId: course.subjectId,
+            academicTermId: course.academicTermId,
             sectionId: course.sectionId,
-            title: `${course.title} Assessment Scheme`,
-            status: 'DRAFT',
-            createdById: creatorId,
-            categories: {
-              create: [
-                {
-                  name: data.title,
-                  weightagePercentage: data.weightagePercent ?? 15,
-                  description: `Component for ${data.title}`,
-                  displayOrder: 0,
-                },
-              ],
-            },
           },
           include: { categories: true },
         });
-      }
 
-      // Find or create appropriate category - prioritize shared Assignments category
-      let category = scheme.categories.find(
-        (c) =>
-          c.name.toLowerCase() === 'assignments' ||
-          c.name.toLowerCase() === 'assignment' ||
-          c.name.toLowerCase().includes('assignment')
-      );
+        if (!scheme) {
+          scheme = await tx.assessmentScheme.findFirst({
+            where: {
+              institutionId,
+              subjectId: course.subjectId,
+              academicTermId: course.academicTermId,
+              sectionId: null,
+            },
+            include: { categories: true },
+          });
+        }
 
-      if (!category) {
-        category = scheme.categories.find(
-          (c) => c.name.toLowerCase() === data.title.toLowerCase()
+        if (!scheme) {
+          let creatorId = user?.id;
+          if (!creatorId && course.teacherId) {
+            const tp = await tx.teacherProfile.findUnique({ where: { id: course.teacherId } });
+            creatorId = tp?.userId;
+          }
+          if (!creatorId) {
+            const adminUser = await tx.user.findFirst({ where: { institutionId } });
+            creatorId = adminUser?.id || 'system';
+          }
+
+          scheme = await tx.assessmentScheme.create({
+            data: {
+              institutionId,
+              academicTermId: course.academicTermId,
+              subjectId: course.subjectId,
+              sectionId: course.sectionId,
+              title: `${course.title} Assessment Scheme`,
+              status: 'DRAFT',
+              createdById: creatorId,
+              categories: {
+                create: [
+                  {
+                    name: 'Assignments',
+                    weightagePercentage: 15,
+                    description: 'Shared assessment category for assignments (15% of course grade)',
+                    displayOrder: 0,
+                  },
+                ],
+              },
+            },
+            include: { categories: true },
+          });
+        }
+
+        // Find or create appropriate category - strictly prioritize shared Assignments category (15%)
+        let category = scheme.categories.find(
+          (c) =>
+            c.name.toLowerCase() === 'assignments' ||
+            c.name.toLowerCase() === 'assignment' ||
+            c.name.toLowerCase().includes('assignment')
         );
-      }
 
-      if (!category) {
-        category = await prisma.assessmentCategory.create({
+        if (!category) {
+          category = await tx.assessmentCategory.create({
+            data: {
+              assessmentSchemeId: scheme.id,
+              name: 'Assignments',
+              weightagePercentage: 15,
+              description: 'Shared assessment category for assignments (15% of course grade)',
+              displayOrder: scheme.categories.length,
+            },
+          });
+        }
+
+        const existingCount = await tx.assignment.count({
+          where: { courseId: data.courseId },
+        });
+        const order = data.displayOrder ?? existingCount + 1;
+
+        const item = await tx.assessmentItem.create({
           data: {
-            assessmentSchemeId: scheme.id,
-            name: 'Assignments',
-            weightagePercentage: data.weightagePercent ?? 15,
-            description: 'Shared assessment category for assignments',
-            displayOrder: scheme.categories.length,
+            assessmentCategoryId: category.id,
+            title: data.title,
+            instructions: finalInstructions,
+            maxMarks: data.maxPoints,
+            weightagePercentage: data.weightagePercent ?? null,
+            displayOrder: order,
+            dueDate: new Date(data.dueDate),
+            isPublished: true,
           },
         });
+        assessmentItemId = item.id;
       }
 
-      const existingCount = await prisma.assignment.count({
+      const existingCountAll = await tx.assignment.count({
         where: { courseId: data.courseId },
       });
-      const order = data.displayOrder ?? existingCount + 1;
+      const orderFinal = data.displayOrder ?? existingCountAll + 1;
 
-      const item = await prisma.assessmentItem.create({
+      return tx.assignment.create({
         data: {
-          assessmentCategoryId: category.id,
+          courseId: data.courseId,
           title: data.title,
           instructions: finalInstructions,
-          maxMarks: data.maxPoints,
-          weightagePercentage: data.weightagePercent ?? null,
-          displayOrder: order,
+          maxPoints: data.maxPoints,
+          weightagePercent: data.weightagePercent ?? null,
+          displayOrder: orderFinal,
+          assessmentItemId,
           dueDate: new Date(data.dueDate),
-          isPublished: true,
+          allowLateSubmissions: data.allowLateSubmissions ?? true,
+          latePenaltyPercent: data.latePenaltyPercent ?? 0,
+        },
+        include: {
+          assessmentItem: true,
         },
       });
-      assessmentItemId = item.id;
-    }
-
-    const existingCountAll = await prisma.assignment.count({
-      where: { courseId: data.courseId },
-    });
-    const orderFinal = data.displayOrder ?? existingCountAll + 1;
-
-    return prisma.assignment.create({
-      data: {
-        courseId: data.courseId,
-        title: data.title,
-        instructions: finalInstructions,
-        maxPoints: data.maxPoints,
-        weightagePercent: data.weightagePercent ?? null,
-        displayOrder: orderFinal,
-        assessmentItemId,
-        dueDate: new Date(data.dueDate),
-        allowLateSubmissions: data.allowLateSubmissions ?? true,
-        latePenaltyPercent: data.latePenaltyPercent ?? 0,
-      },
-      include: {
-        assessmentItem: true,
-      },
     });
   }
 
@@ -598,6 +658,144 @@ export class LmsService {
     }
 
     return updated;
+  }
+
+  static async deleteAssignment(
+    assignmentId: string,
+    institutionId: string,
+    user: AuthenticatedUser
+  ) {
+    const assignment = await prisma.assignment.findFirst({
+      where: { id: assignmentId, course: { institutionId } },
+      include: {
+        course: true,
+        assessmentItem: {
+          include: {
+            category: { include: { assessmentScheme: true } },
+          },
+        },
+      },
+    });
+
+    if (!assignment) {
+      throw { status: 404, message: 'Assignment not found in this institution' };
+    }
+
+    if (
+      user.role === UserRole.ROLE_SUBJECT_TEACHER ||
+      user.role === UserRole.ROLE_CLASS_TEACHER ||
+      user.role === UserRole.ROLE_TEACHING_ASSISTANT
+    ) {
+      const tp = await prisma.teacherProfile.findFirst({ where: { userId: user.id, institutionId } });
+      if (!tp) throw { status: 403, message: 'Teacher profile not found' };
+      if (assignment.course.teacherId && assignment.course.teacherId !== tp.id) {
+        const assigned = await prisma.teacherAssignment.findFirst({
+          where: { teacherId: tp.id, subjectId: assignment.course.subjectId, sectionId: assignment.course.sectionId },
+        });
+        if (!assigned) {
+          throw { status: 403, message: 'Access Denied: You are not authorized to delete assignments for this course' };
+        }
+      }
+    }
+
+    if (assignment.course.academicTermId && assignment.course.subjectId && assignment.course.sectionId) {
+      const activeLockedResults = await prisma.subjectResult.findFirst({
+        where: {
+          subjectId: assignment.course.subjectId,
+          sectionId: assignment.course.sectionId,
+          academicTermId: assignment.course.academicTermId,
+          status: {
+            in: [
+              SubjectResultStatus.SUBMITTED_TO_EXAM_DEPARTMENT,
+              SubjectResultStatus.UNDER_EXAM_REVIEW,
+              SubjectResultStatus.APPROVED,
+              SubjectResultStatus.OFFICIALLY_PUBLISHED,
+            ],
+          },
+        },
+      });
+      if (activeLockedResults) {
+        throw {
+          status: 403,
+          message:
+            'Direct assignment deletion is locked because subject results have been submitted to the Examination Department.',
+        };
+      }
+    }
+
+    const affectedStudents: string[] = [];
+    if (assignment.assessmentItemId) {
+      const marks = await prisma.studentAssessmentMark.findMany({
+        where: { assessmentItemId: assignment.assessmentItemId },
+        select: { studentId: true },
+      });
+      marks.forEach((m) => affectedStudents.push(m.studentId));
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.assignmentSubmission.deleteMany({
+        where: { assignmentId },
+      });
+
+      if (assignment.assessmentItemId) {
+        const itemId = assignment.assessmentItemId;
+        await tx.assignment.update({
+          where: { id: assignmentId },
+          data: { assessmentItemId: null },
+        });
+        await tx.assessmentDeadlineHistory.deleteMany({
+          where: { assessmentItemId: itemId },
+        });
+        await tx.assessmentSubmissionRecord.deleteMany({
+          where: { assessmentItemId: itemId },
+        });
+        await tx.studentAssessmentMark.deleteMany({
+          where: { assessmentItemId: itemId },
+        });
+        await tx.assessmentItem.delete({
+          where: { id: itemId },
+        });
+      }
+
+      await tx.assignment.delete({
+        where: { id: assignmentId },
+      });
+
+      await tx.auditEvent.create({
+        data: {
+          institutionId,
+          userId: user.id,
+          action: 'ASSIGNMENT_DELETED',
+          entity: 'Assignment',
+          entityId: assignmentId,
+          oldValuesJson: JSON.stringify({
+            title: assignment.title,
+            maxPoints: assignment.maxPoints,
+            displayOrder: assignment.displayOrder,
+          }),
+        },
+      });
+    });
+
+    if (
+      assignment.assessmentItem &&
+      assignment.course.academicTermId &&
+      assignment.course.subjectId &&
+      assignment.course.sectionId
+    ) {
+      for (const studentId of affectedStudents) {
+        await AssessmentService.recalculateStudentSubjectResult(
+          institutionId,
+          studentId,
+          assignment.course.subjectId,
+          assignment.course.sectionId,
+          assignment.course.academicTermId,
+          assignment.assessmentItem.category.assessmentSchemeId
+        ).catch(() => {});
+      }
+    }
+
+    return { message: 'Assignment and linked assessment records deleted successfully', id: assignmentId };
   }
 
   static async getSubmissions(assignmentId: string, institutionId: string) {
