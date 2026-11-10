@@ -35,11 +35,11 @@ async function migrateLegacyRecycleBinIfPresent(institutionId: string) {
       const items: RecycleBinItem[] = JSON.parse(raw || '[]');
       const instItems = items.filter((i) => i.institutionId === institutionId);
       for (const item of instItems) {
-        const existing = await prisma.recycleBinRecord.findUnique({
+        const existing = await (prisma as any).recycleBinRecord.findUnique({
           where: { id: item.id },
         });
         if (!existing) {
-          await prisma.recycleBinRecord.create({
+          await (prisma as any).recycleBinRecord.create({
             data: {
               id: item.id,
               institutionId: item.institutionId,
@@ -198,12 +198,12 @@ export class SystemService {
    */
   static async getRecycleBin(institutionId: string): Promise<RecycleBinItem[]> {
     await migrateLegacyRecycleBinIfPresent(institutionId);
-    const records = await prisma.recycleBinRecord.findMany({
+    const records = await (prisma as any).recycleBinRecord.findMany({
       where: { institutionId },
       orderBy: { deletedAt: 'desc' },
     });
 
-    return records.map((r) => ({
+    return records.map((r: any) => ({
       id: r.id,
       institutionId: r.institutionId,
       entityType: r.entityType as 'STUDENT' | 'COURSE',
@@ -247,7 +247,7 @@ export class SystemService {
         data: { status: 'ARCHIVED' },
       });
 
-      const record = await prisma.recycleBinRecord.create({
+      const record = await (prisma as any).recycleBinRecord.create({
         data: {
           institutionId,
           entityType: 'STUDENT',
@@ -291,7 +291,7 @@ export class SystemService {
         data: { isPublished: false },
       });
 
-      const record = await prisma.recycleBinRecord.create({
+      const record = await (prisma as any).recycleBinRecord.create({
         data: {
           institutionId,
           entityType: 'COURSE',
@@ -324,7 +324,7 @@ export class SystemService {
    * Restores an item from the recycle bin back to active status
    */
   static async restoreItem(institutionId: string, recycleBinId: string) {
-    const item = await prisma.recycleBinRecord.findFirst({
+    const item = await (prisma as any).recycleBinRecord.findFirst({
       where: { id: recycleBinId, institutionId },
     });
 
@@ -345,7 +345,7 @@ export class SystemService {
     }
 
     // Remove from bin in PostgreSQL
-    await prisma.recycleBinRecord.delete({
+    await (prisma as any).recycleBinRecord.delete({
       where: { id: recycleBinId },
     });
 
@@ -370,7 +370,7 @@ export class SystemService {
    * Permanently deletes an item from the database
    */
   static async permanentDelete(institutionId: string, recycleBinId: string) {
-    const item = await prisma.recycleBinRecord.findFirst({
+    const item = await (prisma as any).recycleBinRecord.findFirst({
       where: { id: recycleBinId, institutionId },
     });
 
@@ -393,7 +393,7 @@ export class SystemService {
     }
 
     // Remove from bin in PostgreSQL
-    await prisma.recycleBinRecord.delete({
+    await (prisma as any).recycleBinRecord.delete({
       where: { id: recycleBinId },
     });
 

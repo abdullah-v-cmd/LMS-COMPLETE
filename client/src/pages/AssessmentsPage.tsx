@@ -1063,7 +1063,10 @@ export const AssessmentsPage: React.FC = () => {
       if (!editingItem) return;
       const maxMarksNum = Number(editItemMaxMarks);
       const res = await apiClient.put(`/assessments/items/${editingItem.id}`, {
-        assessmentCategoryId: editItemCategoryId || undefined,
+        assessmentCategoryId:
+          editItemCategoryId && editItemCategoryId !== editingItem.assessmentCategoryId
+            ? editItemCategoryId
+            : undefined,
         title: editItemTitle?.trim(),
         maxMarks: !isNaN(maxMarksNum) && maxMarksNum > 0 ? maxMarksNum : undefined,
         dueDate: editItemDueDate && !isNaN(new Date(editItemDueDate).getTime()) ? new Date(editItemDueDate).toISOString() : null,
@@ -1088,6 +1091,9 @@ export const AssessmentsPage: React.FC = () => {
         err?.response?.data?.error?.message ||
         err?.response?.data?.message ||
         (Array.isArray(err?.response?.data?.errors) ? err.response.data.errors.map((e: any) => e.message).join(', ') : null) ||
+        (err?.response?.data?.error?.details && Array.isArray(err.response.data.error.details)
+          ? err.response.data.error.details.map((d: any) => `${d.field ? `${d.field}: ` : ''}${d.message}`).join(', ')
+          : null) ||
         err.message ||
         'Failed to update item';
       setError(msg);
@@ -1217,7 +1223,7 @@ export const AssessmentsPage: React.FC = () => {
 
       const res = await apiClient.post('/assessments/gradebook/save', {
         subjectId: currentAssignment.subjectId,
-        sectionId: currentAssignment.sectionId,
+        sectionId: currentAssignment.sectionId || undefined,
         academicTermId: currentAssignment.academicTermId,
         updates: payload,
         marks: payload,
@@ -1238,6 +1244,9 @@ export const AssessmentsPage: React.FC = () => {
         err?.response?.data?.message ||
         (Array.isArray(err?.response?.data?.errors)
           ? err.response.data.errors.map((e: any) => e.message).join(', ')
+          : null) ||
+        (err?.response?.data?.error?.details && Array.isArray(err.response.data.error.details)
+          ? err.response.data.error.details.map((d: any) => `${d.field ? `${d.field}: ` : ''}${d.message}`).join(', ')
           : null) ||
         err.message ||
         'Failed to save gradebook marks';

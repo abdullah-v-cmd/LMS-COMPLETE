@@ -40,7 +40,7 @@ export class BankService {
         const legacy = all[institutionId];
         if (legacy) {
           const encryptedKey = legacy.gatewayApiKey ? encryptGatewaySecret(legacy.gatewayApiKey) : null;
-          return await prisma.bankIntegrationSetting.create({
+          return await (prisma as any).bankIntegrationSetting.create({
             data: {
               institutionId,
               bankName: legacy.bankName || 'National Education Bank',
@@ -73,7 +73,7 @@ export class BankService {
    * Fetches raw record from PostgreSQL (or seeds default if not present).
    */
   private static async getRawSettings(institutionId: string) {
-    let setting = await prisma.bankIntegrationSetting.findUnique({
+    let setting = await (prisma as any).bankIntegrationSetting.findUnique({
       where: { institutionId },
     });
 
@@ -84,7 +84,7 @@ export class BankService {
         setting = migrated;
       } else {
         // Create default institutional bank setting in PostgreSQL
-        setting = await prisma.bankIntegrationSetting.create({
+        setting = await (prisma as any).bankIntegrationSetting.create({
           data: {
             institutionId,
             bankName: 'National Education Bank',
@@ -183,7 +183,7 @@ export class BankService {
       ? encryptGatewaySecret(resolvedApiKey)
       : undefined;
 
-    await prisma.bankIntegrationSetting.upsert({
+    await (prisma as any).bankIntegrationSetting.upsert({
       where: { institutionId },
       update: {
         ...(data.bankName ? { bankName: data.bankName } : {}),

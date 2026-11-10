@@ -93,10 +93,17 @@ export class AssessmentService {
     sectionId?: string | null,
     allowStaffRead: boolean = false
   ) {
+    // Super Admins and Institution Admins have full administrative authority over assessment management
+    const isSuperOrInstAdmin = ([
+      UserRole.ROLE_SUPER_ADMIN,
+      UserRole.ROLE_INSTITUTION_ADMIN,
+    ] as string[]).includes(user.role);
+    if (isSuperOrInstAdmin) {
+      return;
+    }
+
     if (allowStaffRead) {
       const isStaffAdmin = ([
-        UserRole.ROLE_SUPER_ADMIN,
-        UserRole.ROLE_INSTITUTION_ADMIN,
         UserRole.ROLE_ACADEMIC_HEAD,
         UserRole.ROLE_EXAM_CONTROLLER,
         UserRole.ROLE_AUDITOR,
@@ -2355,12 +2362,12 @@ export class AssessmentService {
     await this.assertTeacherAuthorized(institutionId, user, data.subjectId, data.sectionId);
     await this.assertSchemeNotLockedForTeacher(data.subjectId, data.academicTermId, data.sectionId);
 
-    const scheme = await prisma.assessmentScheme.findFirst({
+    let scheme = await prisma.assessmentScheme.findFirst({
       where: {
         institutionId,
         subjectId: data.subjectId,
-        sectionId: data.sectionId,
         academicTermId: data.academicTermId,
+        ...(data.sectionId ? { sectionId: data.sectionId } : {}),
       },
       include: {
         categories: {
@@ -2372,6 +2379,27 @@ export class AssessmentService {
         },
       },
     });
+
+    if (!scheme && data.sectionId) {
+      scheme = await prisma.assessmentScheme.findFirst({
+        where: {
+          institutionId,
+          subjectId: data.subjectId,
+          academicTermId: data.academicTermId,
+          sectionId: null,
+        },
+        include: {
+          categories: {
+            include: {
+              assessments: {
+                include: { assignment: true },
+              },
+            },
+          },
+        },
+      });
+    }
+
     if (!scheme) throw { status: 404, message: 'Assessment scheme not found' };
 
     const itemsMap = new Map();

@@ -66,26 +66,28 @@ export const createApp = () => {
       (req.headers['x-forwarded-uri'] as string | undefined) ||
       (req.headers['x-original-uri'] as string | undefined);
 
-    let effectiveUrl = forwardedUri || req.url;
+    let effectiveUrl = req.url;
 
-    if (!effectiveUrl.startsWith('/api/v1') && req.originalUrl && req.originalUrl.startsWith('/api/v1')) {
+    if (forwardedUri && forwardedUri.startsWith('/api/v1')) {
+      effectiveUrl = forwardedUri;
+    } else if (req.originalUrl && req.originalUrl.startsWith('/api/v1')) {
       effectiveUrl = req.originalUrl;
-    }
+    } else {
+      // Clean up /api/index prefix if injected by Vercel serverless execution
+      effectiveUrl = effectiveUrl.replace(/^\/api\/index(?:\.ts|\.js)?/, '');
 
-    // Clean up /api/index prefix if injected by Vercel serverless execution
-    effectiveUrl = effectiveUrl.replace(/^\/api\/index(?:\.ts|\.js)?/, '');
-
-    if (!effectiveUrl.startsWith('/api/v1')) {
-      if (effectiveUrl.startsWith('/v1/')) {
-        effectiveUrl = `/api${effectiveUrl}`;
-      } else if (effectiveUrl.startsWith('/api/')) {
-        effectiveUrl = effectiveUrl.replace(/^\/api\//, '/api/v1/');
-      } else if (effectiveUrl === '/api' || effectiveUrl.startsWith('/api?')) {
-        effectiveUrl = effectiveUrl.replace(/^\/api/, '/api/v1');
-      } else if (effectiveUrl === '/health' || effectiveUrl.startsWith('/health?')) {
-        effectiveUrl = `${env.API_PREFIX}${effectiveUrl}`;
-      } else {
-        effectiveUrl = `/api/v1${effectiveUrl.startsWith('/') ? effectiveUrl : `/${effectiveUrl}`}`;
+      if (!effectiveUrl.startsWith('/api/v1')) {
+        if (effectiveUrl.startsWith('/v1/')) {
+          effectiveUrl = `/api${effectiveUrl}`;
+        } else if (effectiveUrl.startsWith('/api/')) {
+          effectiveUrl = effectiveUrl.replace(/^\/api\//, '/api/v1/');
+        } else if (effectiveUrl === '/api' || effectiveUrl.startsWith('/api?')) {
+          effectiveUrl = effectiveUrl.replace(/^\/api/, '/api/v1');
+        } else if (effectiveUrl === '/health' || effectiveUrl.startsWith('/health?')) {
+          effectiveUrl = `${env.API_PREFIX}${effectiveUrl}`;
+        } else {
+          effectiveUrl = `/api/v1${effectiveUrl.startsWith('/') ? effectiveUrl : `/${effectiveUrl}`}`;
+        }
       }
     }
 

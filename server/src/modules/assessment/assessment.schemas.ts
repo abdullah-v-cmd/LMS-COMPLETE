@@ -73,7 +73,7 @@ export const createAssessmentItemSchema = z.object({
 });
 
 export const updateAssessmentItemSchema = z.object({
-  assessmentCategoryId: z.string().uuid().optional(),
+  assessmentCategoryId: z.string().min(1).optional(),
   title: z.string().trim().min(1, 'Title is required').max(150).optional(),
   description: z.string().trim().max(1000).optional().nullable(),
   instructions: z.string().trim().max(5000).optional().nullable(),
@@ -159,8 +159,8 @@ export const examDepartmentReviewSchema = z.object({
 });
 
 const gradebookItemUpdateSchema = z.object({
-  assessmentItemId: z.string().uuid(),
-  studentId: z.string().uuid(),
+  assessmentItemId: z.string().min(1, 'Assessment Item ID is required'),
+  studentId: z.string().min(1, 'Student ID is required'),
   marksObtained: z.preprocess((val) => {
     if (val === '' || val === null || val === undefined) return null;
     const num = Number(val);
@@ -168,14 +168,17 @@ const gradebookItemUpdateSchema = z.object({
   }, z.number().min(0, 'Marks cannot be negative').nullable().optional()),
   isAbsent: z.boolean().optional().default(false),
   isExcused: z.boolean().optional().default(false),
-  remarks: z.string().trim().max(500).optional().nullable(),
+  remarks: z.preprocess((val) => {
+    if (val === null || val === undefined) return null;
+    return String(val).trim();
+  }, z.string().max(500).optional().nullable()),
 });
 
 export const saveGradebookMarksSchema = z
   .object({
-    subjectId: z.string().uuid(),
-    sectionId: z.string().uuid(),
-    academicTermId: z.string().uuid(),
+    subjectId: z.string().min(1, 'Subject ID is required'),
+    sectionId: z.string().optional().nullable(),
+    academicTermId: z.string().min(1, 'Academic Term ID is required'),
     updates: z.array(gradebookItemUpdateSchema).optional(),
     marks: z.array(gradebookItemUpdateSchema).optional(),
   })
