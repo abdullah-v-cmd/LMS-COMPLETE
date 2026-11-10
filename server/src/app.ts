@@ -85,7 +85,7 @@ export const createApp = () => {
   app.use(env.API_PREFIX, apiRateLimiter);
 
   // Health check endpoint
-  app.get(`${env.API_PREFIX}/health`, (req: Request, res: Response) => {
+  app.get(['/health', `${env.API_PREFIX}/health`], (req: Request, res: Response) => {
     return sendSuccess(res, {
       status: 'UP',
       service: 'school-lms-api',

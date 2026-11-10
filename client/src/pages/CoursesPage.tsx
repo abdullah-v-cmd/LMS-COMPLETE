@@ -208,20 +208,27 @@ export const CoursesPage: React.FC = () => {
     submissionId?: string;
   } | null>(null);
 
-  const handleOpenPdf = (
-    attachmentUrl: string,
-    title: string,
+  const handleClosePdfPreview = () => {
+    if (activePdfPreview?.blobUrl && activePdfPreview.blobUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(activePdfPreview.blobUrl);
+    }
+    setActivePdfPreview(null);
+  };
+
+  const handleOpenPdf = async (
+    attachmentUrl?: string,
+    title?: string,
     fileName = 'submission.pdf',
     submissionId?: string
   ) => {
     if (!attachmentUrl && !submissionId) return;
-    try {
-      const token = localStorage.getItem('lms_access_token') || localStorage.getItem('accessToken') || '';
-      const streamUrl = submissionId
-        ? `/api/v1/lms/submissions/${submissionId}/attachment${token ? `?token=${encodeURIComponent(token)}` : ''}`
-        : undefined;
 
-      let blobUrl: string | undefined = streamUrl;
+    if (activePdfPreview?.blobUrl && activePdfPreview.blobUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(activePdfPreview.blobUrl);
+    }
+
+    try {
+      let blobUrl: string | undefined;
 
       if (attachmentUrl && attachmentUrl.startsWith('data:')) {
         const parts = attachmentUrl.split(';base64,');
@@ -235,34 +242,40 @@ export const CoursesPage: React.FC = () => {
         }
         const blob = new Blob([bytes], { type: contentType });
         blobUrl = URL.createObjectURL(blob);
-      } else if (attachmentUrl && !attachmentUrl.startsWith('data:')) {
+      } else if (submissionId) {
+        try {
+          const res = await apiClient.get(`/lms/submissions/${submissionId}/attachment`, {
+            responseType: 'blob',
+          });
+          const mimeType = (res.headers['content-type'] as string) || 'application/pdf';
+          const blob = new Blob([res.data], { type: mimeType });
+          blobUrl = URL.createObjectURL(blob);
+        } catch (fetchErr: any) {
+          console.error('Failed to download submission attachment:', fetchErr);
+          const msg = fetchErr.response?.data?.error?.message || 'Unable to download submission attachment.';
+          setError(msg);
+          return;
+        }
+      } else if (attachmentUrl) {
         blobUrl = attachmentUrl;
       }
 
+      if (!blobUrl) {
+        setError('No previewable document found.');
+        return;
+      }
+
       setActivePdfPreview({
-        url: attachmentUrl,
-        blobUrl: blobUrl || streamUrl,
-        streamUrl,
-        title,
+        url: attachmentUrl || '',
+        blobUrl,
+        streamUrl: blobUrl,
+        title: title || 'Submission Document',
         fileName,
         submissionId,
       });
     } catch (err) {
       console.error('Failed to parse and open PDF:', err);
-      if (submissionId) {
-        const token = localStorage.getItem('lms_access_token') || localStorage.getItem('accessToken') || '';
-        const streamUrl = `/api/v1/lms/submissions/${submissionId}/attachment${token ? `?token=${encodeURIComponent(token)}` : ''}`;
-        setActivePdfPreview({
-          url: attachmentUrl,
-          blobUrl: streamUrl,
-          streamUrl,
-          title,
-          fileName,
-          submissionId,
-        });
-      } else {
-        setError('Unable to decode the submitted PDF file.');
-      }
+      setError('Unable to decode the submitted PDF file.');
     }
   };
 
@@ -274,6 +287,14 @@ export const CoursesPage: React.FC = () => {
     link.click();
     document.body.removeChild(link);
   };
+
+  React.useEffect(() => {
+    return () => {
+      if (activePdfPreview?.blobUrl && activePdfPreview.blobUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(activePdfPreview.blobUrl);
+      }
+    };
+  }, [activePdfPreview]);
 
   // Queries
   const coursesQuery = useQuery({
@@ -1696,7 +1717,7 @@ export const CoursesPage: React.FC = () => {
                 )}
                 <button
                   type="button"
-                  onClick={() => setActivePdfPreview(null)}
+                  onClick={handleClosePdfPreview}
                   className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
                 >
                   <X className="h-5 w-5" />

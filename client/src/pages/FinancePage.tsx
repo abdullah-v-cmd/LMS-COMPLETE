@@ -41,6 +41,7 @@ export type BankIntegrationConfig = {
   gatewayApiKey?: string;
   gatewayMerchantId?: string;
   isOnlinePaymentEnabled: boolean;
+  isGatewayApiKeyConfigured?: boolean;
   updatedAt: string;
   updatedBy?: string;
 };
@@ -1677,14 +1678,24 @@ export const FinancePage: React.FC = () => {
                 {bankForm.gatewayProvider !== 'MANUAL_DEPOSIT' && (
                   <>
                     <div>
-                      <label className="text-xs font-bold text-slate-700">Gateway API Key / Publishable Key</label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-bold text-slate-700">Gateway API Key / Secret Key</label>
+                        {bankForm.isGatewayApiKeyConfigured && (
+                          <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                            ✓ Key Configured
+                          </span>
+                        )}
+                      </div>
                       <input
                         type="password"
                         value={bankForm.gatewayApiKey || ''}
                         onChange={(e) => setBankForm((b) => ({ ...b, gatewayApiKey: e.target.value }))}
-                        placeholder="pk_live_..."
+                        placeholder={bankForm.isGatewayApiKeyConfigured ? '•••••••••••• (Leave blank to keep current key)' : 'Enter API secret key'}
                         className={field}
                       />
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        Encrypted at rest using AES-256-GCM. Never shown in plain text.
+                      </p>
                     </div>
                     <div>
                       <label className="text-xs font-bold text-slate-700">Merchant Account ID / Client ID</label>

@@ -21,6 +21,7 @@ export interface BankIntegrationConfig {
   gatewayApiKey?: string;
   gatewayMerchantId?: string;
   isOnlinePaymentEnabled: boolean;
+  isGatewayApiKeyConfigured?: boolean;
   updatedAt: string;
   updatedBy?: string;
 }
@@ -104,6 +105,7 @@ export class BankService {
       }
     }
 
+    const hasConfiguredApiKey = Boolean(setting.gatewayApiKeyEncrypted);
     let decryptedApiKey: string | undefined = undefined;
     if (setting.gatewayApiKeyEncrypted) {
       try {
@@ -128,6 +130,7 @@ export class BankService {
       gatewayApiKey: decryptedApiKey,
       gatewayMerchantId: setting.gatewayMerchantId || undefined,
       isOnlinePaymentEnabled: setting.isOnlinePaymentEnabled,
+      isGatewayApiKeyConfigured: hasConfiguredApiKey,
       updatedAt: setting.updatedAt.toISOString(),
       updatedBy: setting.updatedBy || undefined,
     };
@@ -169,16 +172,15 @@ export class BankService {
     }
 
     const current = await this.getRawSettings(institutionId);
-    let resolvedApiKey = data.gatewayApiKey;
-    // If the client submitted a masked placeholder, keep the existing secret key
-    if (resolvedApiKey && resolvedApiKey.startsWith('••••')) {
+    let resolvedApiKey = typeof data.gatewayApiKey === 'string' ? data.gatewayApiKey.trim() : undefined;
+
+    // If empty string or masked placeholder submitted, preserve the existing secret key!
+    if (!resolvedApiKey || resolvedApiKey.startsWith('••••')) {
       resolvedApiKey = current.gatewayApiKey;
     }
 
     const encryptedKey = resolvedApiKey
       ? encryptGatewaySecret(resolvedApiKey)
-      : resolvedApiKey === null || resolvedApiKey === ''
-      ? null
       : undefined;
 
     await prisma.bankIntegrationSetting.upsert({
