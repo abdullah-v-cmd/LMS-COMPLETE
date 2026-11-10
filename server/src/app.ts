@@ -61,19 +61,35 @@ export const createApp = () => {
 
   // Vercel Serverless request path normalization
   app.use((req, res, next) => {
-    const url = req.url;
-    const originalUrl = req.originalUrl || url;
-    if (!url.startsWith('/api/v1')) {
-      if (originalUrl.startsWith('/api/v1')) {
-        req.url = originalUrl;
-      } else if (url.startsWith('/v1')) {
-        req.url = `/api${url}`;
-      } else if (url.startsWith('/api')) {
-        req.url = url.replace(/^\/api/, '/api/v1');
+    // 1. Check if the original requested URI is in forwarded headers or originalUrl
+    const forwardedUri =
+      (req.headers['x-forwarded-uri'] as string | undefined) ||
+      (req.headers['x-original-uri'] as string | undefined);
+
+    let effectiveUrl = forwardedUri || req.url;
+
+    if (!effectiveUrl.startsWith('/api/v1') && req.originalUrl && req.originalUrl.startsWith('/api/v1')) {
+      effectiveUrl = req.originalUrl;
+    }
+
+    // Clean up /api/index prefix if injected by Vercel serverless execution
+    effectiveUrl = effectiveUrl.replace(/^\/api\/index(?:\.ts|\.js)?/, '');
+
+    if (!effectiveUrl.startsWith('/api/v1')) {
+      if (effectiveUrl.startsWith('/v1/')) {
+        effectiveUrl = `/api${effectiveUrl}`;
+      } else if (effectiveUrl.startsWith('/api/')) {
+        effectiveUrl = effectiveUrl.replace(/^\/api\//, '/api/v1/');
+      } else if (effectiveUrl === '/api' || effectiveUrl.startsWith('/api?')) {
+        effectiveUrl = effectiveUrl.replace(/^\/api/, '/api/v1');
+      } else if (effectiveUrl === '/health' || effectiveUrl.startsWith('/health?')) {
+        effectiveUrl = `${env.API_PREFIX}${effectiveUrl}`;
       } else {
-        req.url = `/api/v1${url}`;
+        effectiveUrl = `/api/v1${effectiveUrl.startsWith('/') ? effectiveUrl : `/${effectiveUrl}`}`;
       }
     }
+
+    req.url = effectiveUrl;
     next();
   });
 
