@@ -7,6 +7,15 @@ import { decryptCounselingNote, encryptCounselingNote } from './encryption';
 const counselors: UserRole[] = [UserRole.ROLE_COUNSELOR];
 function requireCounselor(user: AuthenticatedUser) { if (!counselors.includes(user.role)) throw { status: 403, message: 'Counseling records are restricted to assigned counselors' }; }
 
+function safeDecrypt(encryptedText: string | null | undefined, fallbackText?: string | null): string {
+  if (!encryptedText) return fallbackText || '';
+  try {
+    return decryptCounselingNote(encryptedText, env.COUNSELING_ENCRYPTION_SECRET ?? env.JWT_ACCESS_SECRET);
+  } catch {
+    return fallbackText || encryptedText;
+  }
+}
+
 export class CounselingService {
   static async referralCandidates(user: AuthenticatedUser, institutionId: string) {
     let studentIds: string[] | undefined;
@@ -52,7 +61,7 @@ export class CounselingService {
       select: { id: true, studentId: true, reason: true, encryptedReason: true, status: true, reviewedAt: true, createdAt: true, student: { select: { admissionNumber: true, user: { select: { firstName: true, lastName: true } } } } },
       orderBy: { createdAt: 'desc' },
     });
-    return referrals.map(({ reason, encryptedReason, ...referral }) => ({ ...referral, reason: encryptedReason ? decryptCounselingNote(encryptedReason, env.COUNSELING_ENCRYPTION_SECRET ?? env.JWT_ACCESS_SECRET) : reason }));
+    return referrals.map(({ reason, encryptedReason, ...referral }) => ({ ...referral, reason: encryptedReason ? safeDecrypt(encryptedReason, reason) : reason }));
   }
 
   static async reviewReferral(user: AuthenticatedUser, institutionId: string, id: string, status: 'ACCEPTED' | 'DECLINED') {
@@ -67,12 +76,12 @@ export class CounselingService {
     const records = await prisma.counselingCase.findMany({ where: { institutionId, counselorId: user.id }, include: { student: { select: { id: true, admissionNumber: true, user: { select: { firstName: true, lastName: true } } } }, supportPlans: { select: { id: true, title: true, goal: true, actions: true, encryptedTitle: true, encryptedGoal: true, encryptedActions: true, status: true, startsAt: true, endsAt: true, followUps: { select: { id: true, dueAt: true, completedAt: true } } } } }, orderBy: { updatedAt: 'desc' } });
     return records.map(({ caseTitle, encryptedCaseTitle, supportPlans, ...record }) => ({
       ...record,
-      caseTitle: encryptedCaseTitle ? decryptCounselingNote(encryptedCaseTitle, env.COUNSELING_ENCRYPTION_SECRET ?? env.JWT_ACCESS_SECRET) : caseTitle,
+      caseTitle: encryptedCaseTitle ? safeDecrypt(encryptedCaseTitle, caseTitle) : caseTitle,
       supportPlans: supportPlans.map(({ title, goal, actions, encryptedTitle, encryptedGoal, encryptedActions, ...plan }) => ({
         ...plan,
-        title: encryptedTitle ? decryptCounselingNote(encryptedTitle, env.COUNSELING_ENCRYPTION_SECRET ?? env.JWT_ACCESS_SECRET) : title,
-        goal: encryptedGoal ? decryptCounselingNote(encryptedGoal, env.COUNSELING_ENCRYPTION_SECRET ?? env.JWT_ACCESS_SECRET) : goal,
-        actions: encryptedActions ? decryptCounselingNote(encryptedActions, env.COUNSELING_ENCRYPTION_SECRET ?? env.JWT_ACCESS_SECRET) : actions,
+        title: encryptedTitle ? safeDecrypt(encryptedTitle, title) : title,
+        goal: encryptedGoal ? safeDecrypt(encryptedGoal, goal) : goal,
+        actions: encryptedActions ? safeDecrypt(encryptedActions, actions) : actions,
       })),
     }));
   }
