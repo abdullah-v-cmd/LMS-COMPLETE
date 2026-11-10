@@ -133,7 +133,7 @@ describe('Vercel Production Persistence & Security Suite', () => {
     });
   });
 
-  describe('4. Storage Service Utility', () => {
+  describe('4. Storage Service & Vercel Blob Architecture', () => {
     it('decodes base64 data URLs to buffers with correct MIME type', async () => {
       const dataUrl = 'data:text/plain;base64,SGVsbG8gVmVyY2VsIFNlcnZlcmxlc3Mh';
       const file = await StorageService.getFile(dataUrl);
@@ -146,6 +146,68 @@ describe('Vercel Production Persistence & Security Suite', () => {
       expect(StorageService.sanitizeFilename('../../../etc/passwd')).toBe('passwd');
       expect(StorageService.sanitizeFilename('..\\..\\windows\\system32\\calc.exe')).toBe('calc.exe');
       expect(StorageService.sanitizeFilename('assignment submission 2026.pdf')).toBe('assignment_submission_2026.pdf');
+    });
+
+    it('rejects executable and dangerous script files', () => {
+      expect(() => StorageService.validateFileType('malicious.exe')).toThrow();
+      expect(() => StorageService.validateFileType('exploit.sh')).toThrow();
+      expect(() => StorageService.validateFileType('payload.bat')).toThrow();
+      expect(() => StorageService.validateFileType('backdoor.php')).toThrow();
+      expect(() => StorageService.validateFileType('valid_document.pdf')).not.toThrow();
+      expect(() => StorageService.validateFileType('student_photo.png')).not.toThrow();
+    });
+
+    it('uploads, retrieves, and deletes files across all domain folders', async () => {
+      const folders: Array<'students' | 'teachers' | 'courses' | 'assignments' | 'submissions' | 'exams' | 'avatars'> = [
+        'students',
+        'teachers',
+        'courses',
+        'assignments',
+        'submissions',
+        'exams',
+        'avatars',
+      ];
+
+      for (const folder of folders) {
+        const dummyBuffer = Buffer.from(`Test content for folder: ${folder}`);
+        const stored = await StorageService.uploadFile(
+          dummyBuffer,
+          `${folder}_test.pdf`,
+          'application/pdf',
+          { folder }
+        );
+
+        expect(stored).toBeDefined();
+        expect(stored.key).toContain(`${folder}/`);
+        expect(stored.url).toBeDefined();
+
+        const retrieved = await StorageService.getFile(stored.url);
+        expect(retrieved).not.toBeNull();
+        expect(retrieved?.buffer.toString()).toBe(`Test content for folder: ${folder}`);
+
+        const deleted = await StorageService.deleteFile(stored.url);
+        expect(deleted).toBe(true);
+      }
+    });
+
+    it('strictly prohibits silent fallback to ephemeral storage in production when Vercel Blob is configured', async () => {
+      // Simulate production environment with missing token
+      const originalProvider = process.env.STORAGE_PROVIDER;
+      const originalToken = process.env.BLOB_READ_WRITE_TOKEN;
+      const originalEnv = process.env.NODE_ENV;
+
+      try {
+        process.env.STORAGE_PROVIDER = 'VERCEL_BLOB';
+        delete process.env.BLOB_READ_WRITE_TOKEN;
+
+        await expect(
+          StorageService.uploadFile(Buffer.from('test'), 'doc.pdf', 'application/pdf')
+        ).rejects.toThrow();
+      } finally {
+        process.env.STORAGE_PROVIDER = originalProvider;
+        if (originalToken) process.env.BLOB_READ_WRITE_TOKEN = originalToken;
+        process.env.NODE_ENV = originalEnv;
+      }
     });
   });
 });

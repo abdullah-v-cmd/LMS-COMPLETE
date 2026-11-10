@@ -3,6 +3,11 @@ import { z } from 'zod';
 
 dotenv.config();
 
+// Backward compatibility: map COUNSELING_ENCRYPTION_KEY to COUNSELING_ENCRYPTION_SECRET if provided
+if (!process.env.COUNSELING_ENCRYPTION_SECRET && process.env.COUNSELING_ENCRYPTION_KEY) {
+  process.env.COUNSELING_ENCRYPTION_SECRET = process.env.COUNSELING_ENCRYPTION_KEY;
+}
+
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.string().default('4000').transform((val, ctx) => {
@@ -67,6 +72,9 @@ export const envSchema = z.object({
   }
   if (!config.DATABASE_URL.includes('localhost') && !/[?&]sslmode=(require|verify-ca|verify-full)(?:&|$)/i.test(config.DATABASE_URL)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['DATABASE_URL'], message: 'Production database URL must require TLS using sslmode=require or stronger' });
+  }
+  if (config.STORAGE_PROVIDER === 'VERCEL_BLOB' && !config.BLOB_READ_WRITE_TOKEN) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['BLOB_READ_WRITE_TOKEN'], message: 'BLOB_READ_WRITE_TOKEN is required when STORAGE_PROVIDER is VERCEL_BLOB' });
   }
 });
 

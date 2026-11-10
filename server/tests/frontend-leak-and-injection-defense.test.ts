@@ -5,6 +5,7 @@ import { redactAuditPayload } from '../src/middleware/audit';
 import { BankService } from '../src/modules/finance/bank.service';
 import { recordPaymentSchema, bankIntegrationSchema, feeStructureSchema, waiverRequestSchema } from '../src/modules/finance/finance.schemas';
 import { UserRole } from '@prisma/client';
+import { prisma } from '../src/utils/prisma';
 
 describe('Security Audit: Frontend Leak Prevention, SQL Injection Defense & Payment Gateway Security', () => {
   const rootDir = path.resolve(__dirname, '../../');
@@ -251,7 +252,16 @@ describe('Security Audit: Frontend Leak Prevention, SQL Injection Defense & Paym
     });
 
     it('masks gatewayApiKey for administrators and omits it entirely for public/student view', async () => {
-      const testInstitutionId = 'test-inst-gateway-security';
+      const inst = await prisma.institution.upsert({
+        where: { code: 'TEST_GATEWAY_SECURITY' },
+        update: {},
+        create: {
+          name: 'Gateway Security Test Inst',
+          code: 'TEST_GATEWAY_SECURITY',
+          slug: 'test-gateway-security',
+        },
+      });
+      const testInstitutionId = inst.id;
 
       // 1. Update settings with an API key
       const adminUser = {

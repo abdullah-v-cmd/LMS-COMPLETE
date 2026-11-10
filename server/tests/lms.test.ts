@@ -43,7 +43,7 @@ describe('Phase 3: Core LMS Workflow Tests', () => {
       include: { assignments: true },
     });
     courseId = course!.id;
-    assignmentId = course!.assignments[0].id;
+    let assignment = course?.assignments?.[0]; if (!assignment && course) { assignment = await prisma.assignment.create({ data: { courseId: course.id, title: 'Algebra Foundations Assignment', instructions: 'Complete exercises', maxPoints: 100, dueDate: new Date(Date.now() + 7 * 86400000) } }); } assignmentId = assignment!.id;
   });
 
   afterAll(async () => {

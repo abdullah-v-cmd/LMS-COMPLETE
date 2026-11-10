@@ -162,17 +162,27 @@ const gradebookItemUpdateSchema = z.object({
   assessmentItemId: z.string().min(1, 'Assessment Item ID is required'),
   studentId: z.string().min(1, 'Student ID is required'),
   marksObtained: z.preprocess((val) => {
-    if (val === '' || val === null || val === undefined) return null;
+    if (val === '' || val === null || val === undefined) return undefined;
     const num = Number(val);
     return isNaN(num) ? null : num;
   }, z.number().min(0, 'Marks cannot be negative').nullable().optional()),
+  obtainedMarks: z.preprocess((val) => {
+    if (val === '' || val === null || val === undefined) return undefined;
+    const num = Number(val);
+    return isNaN(num) ? undefined : num;
+  }, z.number().min(0).optional()),
   isAbsent: z.boolean().optional().default(false),
   isExcused: z.boolean().optional().default(false),
   remarks: z.preprocess((val) => {
     if (val === null || val === undefined) return null;
     return String(val).trim();
   }, z.string().max(500).optional().nullable()),
-});
+}).transform((data) => ({
+  ...data,
+  marksObtained: data.marksObtained !== undefined && data.marksObtained !== null
+    ? data.marksObtained
+    : (data.obtainedMarks !== undefined ? data.obtainedMarks : null),
+}));
 
 export const saveGradebookMarksSchema = z
   .object({

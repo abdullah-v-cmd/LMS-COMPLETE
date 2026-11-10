@@ -29,5 +29,8 @@
     "typescript"
   ],
   "author": "Antigravity Local Engineer",
-  "license": "UNLICENSED"
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@vercel/blob": "^2.9.0"
+  }
 }

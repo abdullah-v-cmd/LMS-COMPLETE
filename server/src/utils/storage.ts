@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { put, del, head } from '@vercel/blob';
 import { env } from '../config/env';
 import { logger } from './logger';
 
@@ -11,6 +12,30 @@ export interface StoredFile {
   mimeType: string;
   size: number;
 }
+
+export type StorageFolder =
+  | 'students'
+  | 'teachers'
+  | 'courses'
+  | 'assignments'
+  | 'submissions'
+  | 'exams'
+  | 'avatars'
+  | 'general';
+
+const BLOCKED_EXTENSIONS = new Set([
+  '.exe',
+  '.bat',
+  '.cmd',
+  '.sh',
+  '.php',
+  '.py',
+  '.pl',
+  '.cgi',
+  '.jar',
+  '.vbs',
+  '.ps1',
+]);
 
 export class StorageService {
   private static uploadDir = path.resolve(process.cwd(), env.UPLOAD_DIR || './uploads');
@@ -34,13 +59,27 @@ export class StorageService {
   }
 
   /**
+   * Validates file extension against prohibited executable types.
+   */
+  public static validateFileType(filename: string): void {
+    const ext = path.extname(filename).toLowerCase();
+    if (BLOCKED_EXTENSIONS.has(ext)) {
+      throw {
+        status: 400,
+        message: `File type '${ext}' is not permitted for security reasons.`,
+      };
+    }
+  }
+
+  /**
    * Uploads a file buffer to persistent storage (Vercel Blob, S3, or Local fallback).
+   * In production, Vercel Blob is enforced and silent fallback to local/memory is strictly rejected.
    */
   public static async uploadFile(
     buffer: Buffer,
     originalFilename: string,
     mimeType: string,
-    options: { folder?: string } = {}
+    options: { folder?: StorageFolder | string } = {}
   ): Promise<StoredFile> {
     const maxBytes = env.MAX_FILE_SIZE_MB * 1024 * 1024;
     if (buffer.length > maxBytes) {
@@ -50,46 +89,60 @@ export class StorageService {
       };
     }
 
+    this.validateFileType(originalFilename);
+
     const safeName = this.sanitizeFilename(originalFilename);
     const uniquePrefix = crypto.randomUUID();
     const folder = options.folder ? options.folder.replace(/[^a-zA-Z0-9_-]/g, '') : 'general';
     const storageKey = `${folder}/${uniquePrefix}-${safeName}`;
 
-    // Provider: Vercel Blob (when token is configured)
-    if (env.STORAGE_PROVIDER === 'VERCEL_BLOB' && env.BLOB_READ_WRITE_TOKEN) {
+    const currentProvider = process.env.STORAGE_PROVIDER || env.STORAGE_PROVIDER;
+    const currentToken = process.env.BLOB_READ_WRITE_TOKEN || env.BLOB_READ_WRITE_TOKEN;
+    const isProduction = (process.env.NODE_ENV || env.NODE_ENV) === 'production';
+
+    // Provider: Vercel Blob (Production standard)
+    if (currentProvider === 'VERCEL_BLOB') {
+      if (!currentToken) {
+        throw new Error(
+          'BLOB_READ_WRITE_TOKEN is missing. Vercel Blob storage requires a valid read/write token.'
+        );
+      }
+
       try {
-        const response = await fetch(`https://blob.vercel-storage.com/${storageKey}`, {
-          method: 'PUT',
-          headers: {
-            Authorization: `Bearer ${env.BLOB_READ_WRITE_TOKEN}`,
-            'x-content-type': mimeType,
-          },
-          body: buffer,
+        const blob = await put(storageKey, buffer, {
+          access: 'public',
+          token: currentToken,
+          contentType: mimeType,
         });
 
-        if (response.ok) {
-          const data = (await response.json()) as { url: string };
-          return {
-            key: storageKey,
-            url: data.url,
-            filename: safeName,
-            mimeType,
-            size: buffer.length,
-          };
-        }
+        logger.info(`File uploaded to Vercel Blob: ${blob.url} (${buffer.length} bytes)`);
+
+        return {
+          key: storageKey,
+          url: blob.url,
+          filename: safeName,
+          mimeType,
+          size: buffer.length,
+        };
       } catch (err: any) {
-        logger.error(`Vercel Blob upload failed, falling back: ${err.message}`);
+        logger.error(`Vercel Blob upload failed: ${err.message}`);
+        // In production, NEVER fall back to local disk or memory - fail loudly to protect data integrity
+        if (isProduction) {
+          throw new Error(
+            `Vercel Blob upload failed: ${err.message}. Silent fallback to local storage or memory is strictly prohibited in production to prevent data loss.`
+          );
+        }
+        // In development/test, continue to local disk fallback
       }
     }
 
-    // Default / Local disk storage fallback
+    // Provider: Local disk storage (Development & Test only)
     this.ensureLocalUploadDir();
     const targetFolder = path.join(this.uploadDir, folder);
     if (!fs.existsSync(targetFolder)) {
       try {
         fs.mkdirSync(targetFolder, { recursive: true });
       } catch (err: any) {
-        // Fallback to /tmp in serverless if root filesystem is read-only
         this.uploadDir = '/tmp/uploads';
       }
     }
@@ -112,7 +165,7 @@ export class StorageService {
   }
 
   /**
-   * Retrieves a file buffer by key or URL.
+   * Retrieves a file buffer and metadata by key or URL.
    */
   public static async getFile(
     keyOrUrl: string
@@ -131,7 +184,7 @@ export class StorageService {
       };
     }
 
-    // Handle external HTTP/S3/Blob URLs
+    // Handle remote HTTP/HTTPS URLs (Vercel Blob or external S3)
     if (keyOrUrl.startsWith('http://') || keyOrUrl.startsWith('https://')) {
       try {
         const res = await fetch(keyOrUrl);
@@ -162,6 +215,8 @@ export class StorageService {
       if (ext === '.pdf') mimeType = 'application/pdf';
       else if (ext === '.png') mimeType = 'image/png';
       else if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg';
+      else if (ext === '.webp') mimeType = 'image/webp';
+      else if (ext === '.csv') mimeType = 'text/csv';
       return {
         buffer,
         mimeType,
@@ -171,5 +226,38 @@ export class StorageService {
 
     return null;
   }
-}
 
+  /**
+   * Deletes a file from persistent storage (Vercel Blob or local disk).
+   */
+  public static async deleteFile(keyOrUrl: string): Promise<boolean> {
+    if (!keyOrUrl) return false;
+
+    // Vercel Blob deletion
+    if (keyOrUrl.includes('blob.vercel-storage.com') || env.STORAGE_PROVIDER === 'VERCEL_BLOB') {
+      if (env.BLOB_READ_WRITE_TOKEN) {
+        try {
+          await del(keyOrUrl, { token: env.BLOB_READ_WRITE_TOKEN });
+          logger.info(`Deleted file from Vercel Blob: ${keyOrUrl}`);
+          return true;
+        } catch (err: any) {
+          logger.warn(`Failed to delete from Vercel Blob: ${err.message}`);
+        }
+      }
+    }
+
+    // Local disk deletion
+    try {
+      const safeKey = keyOrUrl.replace(/^\/api\/v1\/storage\//, '').replace(/\.\./g, '');
+      const localPath = path.join(this.uploadDir, safeKey);
+      if (fs.existsSync(localPath)) {
+        fs.unlinkSync(localPath);
+        return true;
+      }
+    } catch (err: any) {
+      logger.warn(`Failed to delete local file ${keyOrUrl}: ${err.message}`);
+    }
+
+    return false;
+  }
+}

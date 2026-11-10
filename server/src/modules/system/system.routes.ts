@@ -2,11 +2,14 @@ import { Router } from 'express';
 import { SystemController } from './system.controller';
 import { requireAuth } from '../../middleware/auth';
 import { requireTenant } from '../../middleware/tenant';
+import { requireRoles } from '../../middleware/rbac';
+import { UserRole } from '@prisma/client';
 
 const router = Router();
 
 router.use(requireAuth);
 router.use(requireTenant);
+router.use(requireRoles([UserRole.ROLE_SUPER_ADMIN, UserRole.ROLE_INSTITUTION_ADMIN]));
 
 router.get('/backup', SystemController.downloadBackup);
 router.get('/recycle-bin', SystemController.getRecycleBin);

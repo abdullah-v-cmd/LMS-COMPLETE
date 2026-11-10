@@ -93,17 +93,10 @@ export class AssessmentService {
     sectionId?: string | null,
     allowStaffRead: boolean = false
   ) {
-    // Super Admins and Institution Admins have full administrative authority over assessment management
-    const isSuperOrInstAdmin = ([
-      UserRole.ROLE_SUPER_ADMIN,
-      UserRole.ROLE_INSTITUTION_ADMIN,
-    ] as string[]).includes(user.role);
-    if (isSuperOrInstAdmin) {
-      return;
-    }
-
     if (allowStaffRead) {
       const isStaffAdmin = ([
+        UserRole.ROLE_SUPER_ADMIN,
+        UserRole.ROLE_INSTITUTION_ADMIN,
         UserRole.ROLE_ACADEMIC_HEAD,
         UserRole.ROLE_EXAM_CONTROLLER,
         UserRole.ROLE_AUDITOR,
@@ -1544,7 +1537,14 @@ export class AssessmentService {
     user: AuthenticatedUser,
     data: { subjectId: string; sectionId: string; academicTermId: string; remarks?: string }
   ) {
-    await this.assertTeacherAuthorized(institutionId, user, data.subjectId, data.sectionId);
+    const isSuperOrInstAdmin = ([
+      UserRole.ROLE_SUPER_ADMIN,
+      UserRole.ROLE_INSTITUTION_ADMIN,
+    ] as string[]).includes(user.role);
+
+    if (!isSuperOrInstAdmin) {
+      await this.assertTeacherAuthorized(institutionId, user, data.subjectId, data.sectionId);
+    }
     await this.assertSchemeNotLockedForTeacher(data.subjectId, data.academicTermId, data.sectionId);
 
     const scheme = await this.getAssessmentScheme(
@@ -1622,7 +1622,14 @@ export class AssessmentService {
     user: AuthenticatedUser,
     data: { subjectId: string; sectionId: string; academicTermId: string; remarks?: string }
   ) {
-    await this.assertTeacherAuthorized(institutionId, user, data.subjectId, data.sectionId);
+    const isSuperOrInstAdmin = ([
+      UserRole.ROLE_SUPER_ADMIN,
+      UserRole.ROLE_INSTITUTION_ADMIN,
+    ] as string[]).includes(user.role);
+
+    if (!isSuperOrInstAdmin) {
+      await this.assertTeacherAuthorized(institutionId, user, data.subjectId, data.sectionId);
+    }
     await this.assertSchemeNotLockedForTeacher(data.subjectId, data.academicTermId, data.sectionId);
 
     // Validate scheme exists and totals 100%
@@ -2359,7 +2366,14 @@ export class AssessmentService {
       throw { status: 400, message: 'At least one mark update is required' };
     }
 
-    await this.assertTeacherAuthorized(institutionId, user, data.subjectId, data.sectionId);
+    const isSuperOrInstAdmin = ([
+      UserRole.ROLE_SUPER_ADMIN,
+      UserRole.ROLE_INSTITUTION_ADMIN,
+    ] as string[]).includes(user.role);
+
+    if (!isSuperOrInstAdmin) {
+      await this.assertTeacherAuthorized(institutionId, user, data.subjectId, data.sectionId);
+    }
     await this.assertSchemeNotLockedForTeacher(data.subjectId, data.academicTermId, data.sectionId);
 
     let scheme = await prisma.assessmentScheme.findFirst({

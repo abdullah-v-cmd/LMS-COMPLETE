@@ -12,9 +12,14 @@ export function encryptCounselingNote(plainText: string, secret: string) {
 }
 
 export function decryptCounselingNote(encrypted: string, secret: string) {
+  if (!encrypted) return '';
+  if (!encrypted.startsWith('v1:')) {
+    // Legacy unencrypted plain text record
+    return encrypted;
+  }
   const [version, rawIv, rawTag, rawData] = encrypted.split(':');
   if (version !== 'v1' || !rawIv || !rawTag || rawData === undefined) {
-    throw new Error('Unsupported counseling note encryption format');
+    throw new Error('Unsupported or malformed counseling note encryption format');
   }
   const decipher = createDecipheriv('aes-256-gcm', deriveKey(secret), Buffer.from(rawIv, 'base64'));
   decipher.setAuthTag(Buffer.from(rawTag, 'base64'));

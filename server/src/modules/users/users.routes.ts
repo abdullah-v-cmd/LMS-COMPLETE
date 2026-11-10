@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { UsersController } from './users.controller';
+import { AuthController } from '../auth/auth.controller';
 import { requireAuth } from '../../middleware/auth';
 import { requireTenant } from '../../middleware/tenant';
 import { requireRoles, requirePermission } from '../../middleware/rbac';
@@ -13,6 +14,9 @@ const router = Router();
 
 router.use(requireAuth);
 router.use(requireTenant);
+
+router.get('/profile', AuthController.getMe);
+router.get('/me', AuthController.getMe);
 
 router.get(
   '/',

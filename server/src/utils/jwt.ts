@@ -12,6 +12,7 @@ export const signAccessToken = (user: AuthenticatedUser): string => {
       role: user.role,
       institutionId: user.institutionId,
       permissions: user.permissions,
+      jti: crypto.randomUUID(),
     },
     env.JWT_ACCESS_SECRET,
     {

@@ -25,6 +25,7 @@ import counselingRoutes from './modules/counseling/counseling.routes';
 import analyticsRoutes from './modules/analytics/analytics.routes';
 import usersRoutes from './modules/users/users.routes';
 import { systemRoutes } from './modules/system/system.routes';
+import storageRoutes from './modules/storage/storage.routes';
 import { AcademicController } from './modules/academic/academic.controller';
 import { requireAuth } from './middleware/auth';
 import { requireTenant } from './middleware/tenant';
@@ -64,7 +65,8 @@ export const createApp = () => {
     // 1. Check if the original requested URI is in forwarded headers or originalUrl
     const forwardedUri =
       (req.headers['x-forwarded-uri'] as string | undefined) ||
-      (req.headers['x-original-uri'] as string | undefined);
+      (req.headers['x-original-uri'] as string | undefined) ||
+      (req.headers['x-matched-path'] as string | undefined);
 
     let effectiveUrl = req.url;
 
@@ -150,6 +152,7 @@ export const createApp = () => {
   app.use(`${env.API_PREFIX}/analytics`, analyticsRoutes);
   app.use(`${env.API_PREFIX}/users`, usersRoutes);
   app.use(`${env.API_PREFIX}/system`, systemRoutes);
+  app.use(`${env.API_PREFIX}/storage`, storageRoutes);
   app.get(`${env.API_PREFIX}/staff/teachers`, requireAuth, requireTenant, AcademicController.getTeachers);
 
   // 404 Fallback
