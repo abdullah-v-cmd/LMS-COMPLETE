@@ -26,30 +26,38 @@ export interface RecycleBinItem {
   snapshot: any;
 }
 
-const DATA_DIR = path.resolve(__dirname, '../../../data');
-const RECYCLE_BIN_FILE = path.join(DATA_DIR, 'recycle_bin.json');
+const LEGACY_DATA_FILE = path.resolve(__dirname, '../../../data/recycle_bin.json');
 
-function ensureRecycleBinFile(): RecycleBinItem[] {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  if (!fs.existsSync(RECYCLE_BIN_FILE)) {
-    fs.writeFileSync(RECYCLE_BIN_FILE, JSON.stringify([], null, 2), 'utf-8');
-    return [];
-  }
+async function migrateLegacyRecycleBinIfPresent(institutionId: string) {
   try {
-    const raw = fs.readFileSync(RECYCLE_BIN_FILE, 'utf-8');
-    return JSON.parse(raw);
-  } catch (err) {
-    return [];
+    if (fs.existsSync(LEGACY_DATA_FILE)) {
+      const raw = fs.readFileSync(LEGACY_DATA_FILE, 'utf-8');
+      const items: RecycleBinItem[] = JSON.parse(raw || '[]');
+      const instItems = items.filter((i) => i.institutionId === institutionId);
+      for (const item of instItems) {
+        const existing = await prisma.recycleBinRecord.findUnique({
+          where: { id: item.id },
+        });
+        if (!existing) {
+          await prisma.recycleBinRecord.create({
+            data: {
+              id: item.id,
+              institutionId: item.institutionId,
+              entityType: item.entityType,
+              entityId: item.entityId,
+              entityTitle: item.entityTitle,
+              deletedAt: new Date(item.deletedAt),
+              deletedBy: item.deletedBy,
+              reason: item.reason,
+              snapshot: item.snapshot,
+            },
+          });
+        }
+      }
+    }
+  } catch (err: any) {
+    // Ignore legacy read errors
   }
-}
-
-function saveRecycleBinItems(items: RecycleBinItem[]) {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  fs.writeFileSync(RECYCLE_BIN_FILE, JSON.stringify(items, null, 2), 'utf-8');
 }
 
 export class SystemService {
@@ -186,15 +194,30 @@ export class SystemService {
   }
 
   /**
-   * Retrieves all items currently in the recycle bin for an institution
+   * Retrieves all items currently in the recycle bin for an institution from PostgreSQL
    */
   static async getRecycleBin(institutionId: string): Promise<RecycleBinItem[]> {
-    const items = ensureRecycleBinFile();
-    return items.filter((i) => i.institutionId === institutionId);
+    await migrateLegacyRecycleBinIfPresent(institutionId);
+    const records = await prisma.recycleBinRecord.findMany({
+      where: { institutionId },
+      orderBy: { deletedAt: 'desc' },
+    });
+
+    return records.map((r) => ({
+      id: r.id,
+      institutionId: r.institutionId,
+      entityType: r.entityType as 'STUDENT' | 'COURSE',
+      entityId: r.entityId,
+      entityTitle: r.entityTitle,
+      deletedAt: r.deletedAt.toISOString(),
+      deletedBy: r.deletedBy,
+      reason: r.reason || undefined,
+      snapshot: r.snapshot,
+    }));
   }
 
   /**
-   * Moves a record (student or course) to the recycle bin
+   * Moves a record (student or course) to the recycle bin in PostgreSQL
    */
   static async moveToRecycleBin(
     institutionId: string,
@@ -205,8 +228,6 @@ export class SystemService {
       reason?: string;
     }
   ): Promise<RecycleBinItem> {
-    const items = ensureRecycleBinFile();
-
     if (params.entityType === 'STUDENT') {
       const student = await prisma.studentProfile.findFirst({
         where: { id: params.entityId, institutionId },
@@ -226,21 +247,30 @@ export class SystemService {
         data: { status: 'ARCHIVED' },
       });
 
-      const binItem: RecycleBinItem = {
-        id: crypto.randomUUID(),
-        institutionId,
-        entityType: 'STUDENT',
-        entityId: student.id,
-        entityTitle: `${student.user.firstName} ${student.user.lastName} (Adm: ${student.admissionNumber})`,
-        deletedAt: new Date().toISOString(),
-        deletedBy: params.deletedBy,
-        reason: params.reason || 'Manual user soft-delete',
-        snapshot: student,
-      };
+      const record = await prisma.recycleBinRecord.create({
+        data: {
+          institutionId,
+          entityType: 'STUDENT',
+          entityId: student.id,
+          entityTitle: `${student.user.firstName} ${student.user.lastName} (Adm: ${student.admissionNumber})`,
+          deletedAt: new Date(),
+          deletedBy: params.deletedBy,
+          reason: params.reason || 'Manual user soft-delete',
+          snapshot: student as any,
+        },
+      });
 
-      items.push(binItem);
-      saveRecycleBinItems(items);
-      return binItem;
+      return {
+        id: record.id,
+        institutionId: record.institutionId,
+        entityType: 'STUDENT',
+        entityId: record.entityId,
+        entityTitle: record.entityTitle,
+        deletedAt: record.deletedAt.toISOString(),
+        deletedBy: record.deletedBy,
+        reason: record.reason || undefined,
+        snapshot: record.snapshot,
+      };
     } else if (params.entityType === 'COURSE') {
       const course = await prisma.course.findFirst({
         where: { id: params.entityId, institutionId },
@@ -261,21 +291,30 @@ export class SystemService {
         data: { isPublished: false },
       });
 
-      const binItem: RecycleBinItem = {
-        id: crypto.randomUUID(),
-        institutionId,
-        entityType: 'COURSE',
-        entityId: course.id,
-        entityTitle: `${course.subject.name} - ${course.code} (${course.section.classGrade?.name ?? ''} ${course.section.name})`,
-        deletedAt: new Date().toISOString(),
-        deletedBy: params.deletedBy,
-        reason: params.reason || 'Manual course soft-delete',
-        snapshot: course,
-      };
+      const record = await prisma.recycleBinRecord.create({
+        data: {
+          institutionId,
+          entityType: 'COURSE',
+          entityId: course.id,
+          entityTitle: `${course.subject.name} - ${course.code} (${course.section.classGrade?.name ?? ''} ${course.section.name})`,
+          deletedAt: new Date(),
+          deletedBy: params.deletedBy,
+          reason: params.reason || 'Manual course soft-delete',
+          snapshot: course as any,
+        },
+      });
 
-      items.push(binItem);
-      saveRecycleBinItems(items);
-      return binItem;
+      return {
+        id: record.id,
+        institutionId: record.institutionId,
+        entityType: 'COURSE',
+        entityId: record.entityId,
+        entityTitle: record.entityTitle,
+        deletedAt: record.deletedAt.toISOString(),
+        deletedBy: record.deletedBy,
+        reason: record.reason || undefined,
+        snapshot: record.snapshot,
+      };
     } else {
       throw { status: 400, message: 'Unsupported entity type for recycle bin.' };
     }
@@ -285,14 +324,13 @@ export class SystemService {
    * Restores an item from the recycle bin back to active status
    */
   static async restoreItem(institutionId: string, recycleBinId: string) {
-    const items = ensureRecycleBinFile();
-    const index = items.findIndex((i) => i.id === recycleBinId && i.institutionId === institutionId);
+    const item = await prisma.recycleBinRecord.findFirst({
+      where: { id: recycleBinId, institutionId },
+    });
 
-    if (index === -1) {
+    if (!item) {
       throw { status: 404, message: 'Recycle bin item not found or already processed.' };
     }
-
-    const item = items[index];
 
     if (item.entityType === 'STUDENT') {
       await prisma.studentProfile.update({
@@ -306,14 +344,25 @@ export class SystemService {
       });
     }
 
-    // Remove from bin
-    items.splice(index, 1);
-    saveRecycleBinItems(items);
+    // Remove from bin in PostgreSQL
+    await prisma.recycleBinRecord.delete({
+      where: { id: recycleBinId },
+    });
 
     return {
       success: true,
       message: `Successfully restored ${item.entityTitle} back to active records.`,
-      restoredItem: item,
+      restoredItem: {
+        id: item.id,
+        institutionId: item.institutionId,
+        entityType: item.entityType,
+        entityId: item.entityId,
+        entityTitle: item.entityTitle,
+        deletedAt: item.deletedAt.toISOString(),
+        deletedBy: item.deletedBy,
+        reason: item.reason || undefined,
+        snapshot: item.snapshot,
+      },
     };
   }
 
@@ -321,23 +370,20 @@ export class SystemService {
    * Permanently deletes an item from the database
    */
   static async permanentDelete(institutionId: string, recycleBinId: string) {
-    const items = ensureRecycleBinFile();
-    const index = items.findIndex((i) => i.id === recycleBinId && i.institutionId === institutionId);
+    const item = await prisma.recycleBinRecord.findFirst({
+      where: { id: recycleBinId, institutionId },
+    });
 
-    if (index === -1) {
+    if (!item) {
       throw { status: 404, message: 'Recycle bin item not found or already deleted.' };
     }
 
-    const item = items[index];
-
     try {
       if (item.entityType === 'STUDENT') {
-        // Delete student profile and related records
         await prisma.studentProfile.delete({
           where: { id: item.entityId },
         });
       } else if (item.entityType === 'COURSE') {
-        // Delete course
         await prisma.course.delete({
           where: { id: item.entityId },
         });
@@ -346,14 +392,25 @@ export class SystemService {
       console.warn('Permanent delete in DB error (may already be deleted or constraint):', err.message);
     }
 
-    // Remove from bin
-    items.splice(index, 1);
-    saveRecycleBinItems(items);
+    // Remove from bin in PostgreSQL
+    await prisma.recycleBinRecord.delete({
+      where: { id: recycleBinId },
+    });
 
     return {
       success: true,
       message: `Permanently removed ${item.entityTitle} from database.`,
-      deletedItem: item,
+      deletedItem: {
+        id: item.id,
+        institutionId: item.institutionId,
+        entityType: item.entityType,
+        entityId: item.entityId,
+        entityTitle: item.entityTitle,
+        deletedAt: item.deletedAt.toISOString(),
+        deletedBy: item.deletedBy,
+        reason: item.reason || undefined,
+        snapshot: item.snapshot,
+      },
     };
   }
 }

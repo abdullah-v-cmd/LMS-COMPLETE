@@ -8,6 +8,7 @@
     "client"
   ],
   "scripts": {
+    "build": "npm --prefix server run db:generate && npm --prefix server run build && npm --prefix client run build",
     "dev:server": "npm --prefix server run dev",
     "dev:client": "npm --prefix client run dev",
     "build:server": "npm --prefix server run build",

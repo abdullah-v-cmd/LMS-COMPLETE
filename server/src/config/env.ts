@@ -12,14 +12,23 @@ export const envSchema = z.object({
   }),
   API_PREFIX: z.string().default('/api/v1'),
   DATABASE_URL: z.string().url().refine((value) => value.startsWith('postgresql://') || value.startsWith('postgres://'), 'DATABASE_URL must be a PostgreSQL connection URL'),
+  DIRECT_URL: z.string().url().optional(),
   JWT_ACCESS_SECRET: z.string().min(16, 'JWT_ACCESS_SECRET must be at least 16 chars'),
   JWT_REFRESH_SECRET: z.string().min(16, 'JWT_REFRESH_SECRET must be at least 16 chars'),
   REPORT_CARD_SIGNING_SECRET: z.string().min(16).optional(),
   COUNSELING_ENCRYPTION_SECRET: z.string().min(16).optional(),
+  FINANCE_ENCRYPTION_SECRET: z.string().min(16).optional(),
   JWT_ACCESS_EXPIRY: z.string().default('15m'),
   JWT_REFRESH_EXPIRY: z.string().default('7d'),
-  CLIENT_URL: z.string().url().default('http://localhost:5173'),
+  CLIENT_URL: z.string().default('http://localhost:5173'),
   UPLOAD_DIR: z.string().default('./uploads'),
+  STORAGE_PROVIDER: z.enum(['LOCAL', 'VERCEL_BLOB', 'S3']).default('LOCAL'),
+  BLOB_READ_WRITE_TOKEN: z.string().optional(),
+  S3_BUCKET: z.string().optional(),
+  S3_REGION: z.string().default('us-east-1'),
+  S3_ACCESS_KEY_ID: z.string().optional(),
+  S3_SECRET_ACCESS_KEY: z.string().optional(),
+  S3_ENDPOINT: z.string().optional(),
   MAX_FILE_SIZE_MB: z.string().default('10').transform((val, ctx) => {
     const size = Number(val);
     if (!Number.isInteger(size) || size < 1 || size > 1024) { ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'MAX_FILE_SIZE_MB must be an integer from 1 to 1024' }); return z.NEVER; }
@@ -45,10 +54,18 @@ export const envSchema = z.object({
   if (!config.COUNSELING_ENCRYPTION_SECRET || config.COUNSELING_ENCRYPTION_SECRET.length < 32 || /your_|change.?me|example|default/i.test(config.COUNSELING_ENCRYPTION_SECRET)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['COUNSELING_ENCRYPTION_SECRET'], message: 'Production counseling encryption secret must be a unique random value of at least 32 characters' });
   }
-  if (!config.CLIENT_URL.startsWith('https://')) {
+  if (config.FINANCE_ENCRYPTION_SECRET && (config.FINANCE_ENCRYPTION_SECRET.length < 32 || /your_|change.?me|example|default/i.test(config.FINANCE_ENCRYPTION_SECRET))) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['FINANCE_ENCRYPTION_SECRET'], message: 'Production finance encryption secret must be a unique random value of at least 32 characters' });
+  }
+  if (config.FINANCE_ENCRYPTION_SECRET && (config.FINANCE_ENCRYPTION_SECRET === config.COUNSELING_ENCRYPTION_SECRET || config.FINANCE_ENCRYPTION_SECRET === config.JWT_ACCESS_SECRET)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['FINANCE_ENCRYPTION_SECRET'], message: 'Finance encryption secret must be separate from JWT and counseling secrets' });
+  }
+  const clientUrls = config.CLIENT_URL.split(',').map((u) => u.trim());
+  const invalidClientUrl = clientUrls.find((u) => !u.startsWith('https://') && !u.includes('localhost'));
+  if (invalidClientUrl) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['CLIENT_URL'], message: 'Production CLIENT_URL must use HTTPS' });
   }
-  if (!/[?&]sslmode=(require|verify-ca|verify-full)(?:&|$)/i.test(config.DATABASE_URL)) {
+  if (!config.DATABASE_URL.includes('localhost') && !/[?&]sslmode=(require|verify-ca|verify-full)(?:&|$)/i.test(config.DATABASE_URL)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['DATABASE_URL'], message: 'Production database URL must require TLS using sslmode=require or stronger' });
   }
 });

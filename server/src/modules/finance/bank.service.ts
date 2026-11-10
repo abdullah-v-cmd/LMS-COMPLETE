@@ -2,6 +2,9 @@ import fs from 'fs';
 import path from 'path';
 import { UserRole } from '@prisma/client';
 import { AuthenticatedUser } from '../../types';
+import { prisma } from '../../utils/prisma';
+import { encryptGatewaySecret, decryptGatewaySecret } from './encryption';
+import { logger } from '../../utils/logger';
 
 export interface BankIntegrationConfig {
   institutionId: string;
@@ -22,69 +25,119 @@ export interface BankIntegrationConfig {
   updatedBy?: string;
 }
 
-const DATA_DIR = path.resolve(__dirname, '../../../data');
-const SETTINGS_FILE = path.join(DATA_DIR, 'bank_settings.json');
-
-function ensureDataFile() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  if (!fs.existsSync(SETTINGS_FILE)) {
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify({}, null, 2), 'utf-8');
-  }
-}
-
-function readAllSettings(): Record<string, BankIntegrationConfig> {
-  try {
-    ensureDataFile();
-    const raw = fs.readFileSync(SETTINGS_FILE, 'utf-8');
-    return JSON.parse(raw || '{}');
-  } catch (err) {
-    console.error('Error reading bank_settings.json:', err);
-    return {};
-  }
-}
-
-function writeAllSettings(settings: Record<string, BankIntegrationConfig>) {
-  ensureDataFile();
-  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8');
-}
+const LEGACY_DATA_FILE = path.resolve(__dirname, '../../../data/bank_settings.json');
 
 export class BankService {
-  private static getRawSettings(institutionId: string): BankIntegrationConfig {
-    const all = readAllSettings();
-    if (all[institutionId]) {
-      return all[institutionId];
+  /**
+   * One-time legacy JSON file migration to PostgreSQL.
+   */
+  private static async migrateLegacyFileIfPresent(institutionId: string) {
+    try {
+      if (fs.existsSync(LEGACY_DATA_FILE)) {
+        const raw = fs.readFileSync(LEGACY_DATA_FILE, 'utf-8');
+        const all = JSON.parse(raw || '{}');
+        const legacy = all[institutionId];
+        if (legacy) {
+          const encryptedKey = legacy.gatewayApiKey ? encryptGatewaySecret(legacy.gatewayApiKey) : null;
+          return await prisma.bankIntegrationSetting.create({
+            data: {
+              institutionId,
+              bankName: legacy.bankName || 'National Education Bank',
+              accountTitle: legacy.accountTitle || 'EduFlow Institutional Tuition Reserve',
+              accountNumber: legacy.accountNumber || '0129-84729104-01',
+              ibanOrRoutingNumber: legacy.ibanOrRoutingNumber || 'PK82NEBK01298472910401',
+              swiftBicCode: legacy.swiftBicCode || 'NEBKPKAXXX',
+              branchName: legacy.branchName || 'Main Campus Boulevard Branch',
+              branchCode: legacy.branchCode || '0129',
+              currency: legacy.currency || 'USD',
+              depositInstructions:
+                legacy.depositInstructions ||
+                'Please specify the Student Admission Number and Invoice Number on your bank deposit slip or mobile bank transfer reference.',
+              gatewayProvider: legacy.gatewayProvider || 'MANUAL_DEPOSIT',
+              gatewayApiKeyEncrypted: encryptedKey,
+              gatewayMerchantId: legacy.gatewayMerchantId || null,
+              isOnlinePaymentEnabled: legacy.isOnlinePaymentEnabled ?? true,
+              updatedBy: legacy.updatedBy || 'Migrated from local JSON',
+            },
+          });
+        }
+      }
+    } catch (err: any) {
+      logger.warn(`Legacy bank settings migration skipped or already completed: ${err.message}`);
+    }
+    return null;
+  }
+
+  /**
+   * Fetches raw record from PostgreSQL (or seeds default if not present).
+   */
+  private static async getRawSettings(institutionId: string) {
+    let setting = await prisma.bankIntegrationSetting.findUnique({
+      where: { institutionId },
+    });
+
+    if (!setting) {
+      // Check if we can migrate from legacy file
+      const migrated = await this.migrateLegacyFileIfPresent(institutionId);
+      if (migrated) {
+        setting = migrated;
+      } else {
+        // Create default institutional bank setting in PostgreSQL
+        setting = await prisma.bankIntegrationSetting.create({
+          data: {
+            institutionId,
+            bankName: 'National Education Bank',
+            accountTitle: 'EduFlow Institutional Tuition Reserve',
+            accountNumber: '0129-84729104-01',
+            ibanOrRoutingNumber: 'PK82NEBK01298472910401',
+            swiftBicCode: 'NEBKPKAXXX',
+            branchName: 'Main Campus Boulevard Branch',
+            branchCode: '0129',
+            currency: 'USD',
+            depositInstructions:
+              'Please specify the Student Admission Number and Invoice Number on your bank deposit slip or mobile bank transfer reference.',
+            gatewayProvider: 'MANUAL_DEPOSIT',
+            isOnlinePaymentEnabled: true,
+            updatedBy: 'System Default',
+          },
+        });
+      }
     }
 
-    const defaultConfig: BankIntegrationConfig = {
-      institutionId,
-      bankName: 'National Education Bank',
-      accountTitle: 'EduFlow Institutional Tuition Reserve',
-      accountNumber: '0129-84729104-01',
-      ibanOrRoutingNumber: 'PK82NEBK01298472910401',
-      swiftBicCode: 'NEBKPKAXXX',
-      branchName: 'Main Campus Boulevard Branch',
-      branchCode: '0129',
-      currency: 'USD',
-      depositInstructions:
-        'Please specify the Student Admission Number and Invoice Number on your bank deposit slip or mobile bank transfer reference.',
-      gatewayProvider: 'MANUAL_DEPOSIT',
-      isOnlinePaymentEnabled: true,
-      updatedAt: new Date().toISOString(),
-      updatedBy: 'System Default',
-    };
+    let decryptedApiKey: string | undefined = undefined;
+    if (setting.gatewayApiKeyEncrypted) {
+      try {
+        decryptedApiKey = decryptGatewaySecret(setting.gatewayApiKeyEncrypted);
+      } catch (err: any) {
+        logger.error('Failed to decrypt payment gateway API key:', { message: err.message });
+      }
+    }
 
-    all[institutionId] = defaultConfig;
-    writeAllSettings(all);
-    return defaultConfig;
+    return {
+      institutionId: setting.institutionId,
+      bankName: setting.bankName,
+      accountTitle: setting.accountTitle,
+      accountNumber: setting.accountNumber,
+      ibanOrRoutingNumber: setting.ibanOrRoutingNumber,
+      swiftBicCode: setting.swiftBicCode,
+      branchName: setting.branchName,
+      branchCode: setting.branchCode,
+      currency: setting.currency,
+      depositInstructions: setting.depositInstructions,
+      gatewayProvider: setting.gatewayProvider as BankIntegrationConfig['gatewayProvider'],
+      gatewayApiKey: decryptedApiKey,
+      gatewayMerchantId: setting.gatewayMerchantId || undefined,
+      isOnlinePaymentEnabled: setting.isOnlinePaymentEnabled,
+      updatedAt: setting.updatedAt.toISOString(),
+      updatedBy: setting.updatedBy || undefined,
+    };
   }
 
   static async getBankSettings(
     institutionId: string,
     options: { omitSecret?: boolean; maskSecret?: boolean } = { maskSecret: true }
   ): Promise<BankIntegrationConfig> {
-    const raw = this.getRawSettings(institutionId);
+    const raw = await this.getRawSettings(institutionId);
     const result: BankIntegrationConfig = { ...raw };
 
     if (options.omitSecret) {
@@ -115,25 +168,55 @@ export class BankService {
       };
     }
 
-    const current = this.getRawSettings(institutionId);
+    const current = await this.getRawSettings(institutionId);
     let resolvedApiKey = data.gatewayApiKey;
     // If the client submitted a masked placeholder, keep the existing secret key
     if (resolvedApiKey && resolvedApiKey.startsWith('••••')) {
       resolvedApiKey = current.gatewayApiKey;
     }
 
-    const updated: BankIntegrationConfig = {
-      ...current,
-      ...data,
-      gatewayApiKey: resolvedApiKey !== undefined ? resolvedApiKey : current.gatewayApiKey,
-      institutionId,
-      updatedAt: new Date().toISOString(),
-      updatedBy: `${user.email} (${user.role})`,
-    };
+    const encryptedKey = resolvedApiKey
+      ? encryptGatewaySecret(resolvedApiKey)
+      : resolvedApiKey === null || resolvedApiKey === ''
+      ? null
+      : undefined;
 
-    const all = readAllSettings();
-    all[institutionId] = updated;
-    writeAllSettings(all);
+    await prisma.bankIntegrationSetting.upsert({
+      where: { institutionId },
+      update: {
+        ...(data.bankName ? { bankName: data.bankName } : {}),
+        ...(data.accountTitle ? { accountTitle: data.accountTitle } : {}),
+        ...(data.accountNumber ? { accountNumber: data.accountNumber } : {}),
+        ...(data.ibanOrRoutingNumber ? { ibanOrRoutingNumber: data.ibanOrRoutingNumber } : {}),
+        ...(data.swiftBicCode ? { swiftBicCode: data.swiftBicCode } : {}),
+        ...(data.branchName ? { branchName: data.branchName } : {}),
+        ...(data.branchCode ? { branchCode: data.branchCode } : {}),
+        ...(data.currency ? { currency: data.currency } : {}),
+        ...(data.depositInstructions ? { depositInstructions: data.depositInstructions } : {}),
+        ...(data.gatewayProvider ? { gatewayProvider: data.gatewayProvider } : {}),
+        ...(data.gatewayMerchantId !== undefined ? { gatewayMerchantId: data.gatewayMerchantId || null } : {}),
+        ...(data.isOnlinePaymentEnabled !== undefined ? { isOnlinePaymentEnabled: data.isOnlinePaymentEnabled } : {}),
+        ...(encryptedKey !== undefined ? { gatewayApiKeyEncrypted: encryptedKey } : {}),
+        updatedBy: `${user.email} (${user.role})`,
+      },
+      create: {
+        institutionId,
+        bankName: data.bankName || current.bankName,
+        accountTitle: data.accountTitle || current.accountTitle,
+        accountNumber: data.accountNumber || current.accountNumber,
+        ibanOrRoutingNumber: data.ibanOrRoutingNumber || current.ibanOrRoutingNumber,
+        swiftBicCode: data.swiftBicCode || current.swiftBicCode,
+        branchName: data.branchName || current.branchName,
+        branchCode: data.branchCode || current.branchCode,
+        currency: data.currency || current.currency,
+        depositInstructions: data.depositInstructions || current.depositInstructions,
+        gatewayProvider: data.gatewayProvider || current.gatewayProvider,
+        gatewayMerchantId: data.gatewayMerchantId || null,
+        gatewayApiKeyEncrypted: encryptedKey || null,
+        isOnlinePaymentEnabled: data.isOnlinePaymentEnabled ?? current.isOnlinePaymentEnabled,
+        updatedBy: `${user.email} (${user.role})`,
+      },
+    });
 
     return this.getBankSettings(institutionId, { maskSecret: true });
   }

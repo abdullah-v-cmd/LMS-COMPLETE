@@ -1,6 +1,7 @@
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 generator client {
@@ -207,6 +208,8 @@ model Institution {
   assessmentSchemes  AssessmentScheme[]
   subjectResults     SubjectResult[]
   examPushRecords    ExamPushRecord[]
+  bankSetting        BankIntegrationSetting?
+  recycleBinRecords  RecycleBinRecord[]
 
   @@map("institutions")
 }
@@ -1976,4 +1979,53 @@ model AuditEvent {
 
   @@index([institutionId, entity, action, timestamp])
   @@map("audit_events")
+}
+
+// -------------------------------------------------------------
+// 21. VERCEL SERVERLESS PERSISTENCE: BANK & RECYCLE BIN
+// -------------------------------------------------------------
+
+model BankIntegrationSetting {
+  id                     String   @id @default(uuid())
+  institutionId          String   @unique
+  bankName               String   @default("National Education Bank")
+  accountTitle           String   @default("EduFlow Institutional Tuition Reserve")
+  accountNumber          String   @default("0129-84729104-01")
+  ibanOrRoutingNumber    String   @default("PK82NEBK01298472910401")
+  swiftBicCode           String   @default("NEBKPKAXXX")
+  branchName             String   @default("Main Campus Boulevard Branch")
+  branchCode             String   @default("0129")
+  currency               String   @default("USD")
+  depositInstructions    String   @default("Please specify the Student Admission Number and Invoice Number on your bank deposit slip or mobile bank transfer reference.")
+  gatewayProvider        String   @default("MANUAL_DEPOSIT")
+  gatewayApiKeyEncrypted String?
+  gatewayMerchantId      String?
+  isOnlinePaymentEnabled Boolean  @default(true)
+  updatedBy              String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  institution Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+
+  @@map("bank_integration_settings")
+}
+
+model RecycleBinRecord {
+  id            String   @id @default(uuid())
+  institutionId String
+  entityType    String   // 'STUDENT' | 'COURSE'
+  entityId      String
+  entityTitle   String
+  deletedAt     DateTime @default(now())
+  deletedBy     String
+  reason        String?
+  snapshot      Json
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  institution Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+
+  @@index([institutionId])
+  @@index([entityType, entityId])
+  @@map("recycle_bin_records")
 }

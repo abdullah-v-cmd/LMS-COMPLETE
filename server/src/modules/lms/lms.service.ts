@@ -1104,6 +1104,10 @@ export class LmsService {
   }
 
   static async getSubmissionAttachment(submissionId: string, user?: AuthenticatedUser) {
+    if (!user) {
+      throw { status: 401, message: 'Authentication required to access submission attachments.' };
+    }
+
     const submission = await prisma.assignmentSubmission.findUnique({
       where: { id: submissionId },
       include: {
@@ -1124,21 +1128,27 @@ export class LmsService {
       throw { status: 404, message: 'Assignment submission not found' };
     }
 
-    if (user) {
-      if (user.role === UserRole.ROLE_STUDENT) {
-        if (submission.student.userId !== user.id) {
-          throw { status: 403, message: 'You can only view your own assignment submission.' };
-        }
-      } else if (user.role === UserRole.ROLE_PARENT) {
-        const isLinked = await prisma.studentParentRelation.findFirst({
-          where: {
-            parent: { userId: user.id },
-            studentId: submission.studentId,
-          },
-        });
-        if (!isLinked) {
-          throw { status: 403, message: 'You can only view submissions of your linked children.' };
-        }
+    // Tenant isolation: verify institution match
+    if (
+      user.role !== UserRole.ROLE_SUPER_ADMIN &&
+      submission.assignment.course.institutionId !== user.institutionId
+    ) {
+      throw { status: 403, message: 'Access denied: submission belongs to another institution.' };
+    }
+
+    if (user.role === UserRole.ROLE_STUDENT) {
+      if (submission.student.userId !== user.id) {
+        throw { status: 403, message: 'You can only view your own assignment submission.' };
+      }
+    } else if (user.role === UserRole.ROLE_PARENT) {
+      const isLinked = await prisma.studentParentRelation.findFirst({
+        where: {
+          parent: { userId: user.id },
+          studentId: submission.studentId,
+        },
+      });
+      if (!isLinked) {
+        throw { status: 403, message: 'You can only view submissions of your linked children.' };
       }
     }
 

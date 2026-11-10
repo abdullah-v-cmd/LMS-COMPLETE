@@ -107,10 +107,14 @@ export class LmsController {
   static async getSubmissionAttachment(req: Request, res: Response, next: NextFunction) {
     try {
       let user: AuthenticatedUser | undefined = (req as any).user;
+      const authHeader = req.headers.authorization;
+      const headerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
       const queryToken = req.query.token as string;
-      if (!user && queryToken) {
+      const effectiveToken = headerToken || queryToken;
+
+      if (!user && effectiveToken) {
         try {
-          const payload = verifyAccessToken(queryToken);
+          const payload = verifyAccessToken(effectiveToken);
           if (payload) {
             user = {
               id: payload.sub,
@@ -118,7 +122,7 @@ export class LmsController {
               username: (payload as any).username || '',
               role: payload.role,
               institutionId: payload.institutionId,
-              permissions: [],
+              permissions: payload.permissions || [],
             };
           }
         } catch {

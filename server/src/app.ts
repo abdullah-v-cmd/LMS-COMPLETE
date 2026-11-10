@@ -37,15 +37,45 @@ export const createApp = () => {
   // Security headers
   app.use(helmet());
 
-  // Cross-Origin Resource Sharing
+  // Cross-Origin Resource Sharing (Supports production domain, Vercel preview branches, and local dev)
+  const allowedOrigins = (env.CLIENT_URL || '').split(',').map((o) => o.trim());
   app.use(
     cors({
-      origin: env.CLIENT_URL,
+      origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        if (
+          allowedOrigins.includes(origin) ||
+          allowedOrigins.includes('*') ||
+          origin.endsWith('.vercel.app') ||
+          process.env.NODE_ENV !== 'production'
+        ) {
+          return callback(null, true);
+        }
+        return callback(null, false);
+      },
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization', 'x-institution-id'],
     })
   );
+
+  // Vercel Serverless request path normalization
+  app.use((req, res, next) => {
+    const url = req.url;
+    const originalUrl = req.originalUrl || url;
+    if (!url.startsWith('/api/v1')) {
+      if (originalUrl.startsWith('/api/v1')) {
+        req.url = originalUrl;
+      } else if (url.startsWith('/v1')) {
+        req.url = `/api${url}`;
+      } else if (url.startsWith('/api')) {
+        req.url = url.replace(/^\/api/, '/api/v1');
+      } else {
+        req.url = `/api/v1${url}`;
+      }
+    }
+    next();
+  });
 
   // Body parsing
   app.use(express.json({ limit: '10mb' }));
@@ -120,3 +150,6 @@ export const createApp = () => {
 
   return app;
 };
+
+export const app = createApp();
+export default app;

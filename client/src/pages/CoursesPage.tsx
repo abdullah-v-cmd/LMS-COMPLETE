@@ -216,9 +216,9 @@ export const CoursesPage: React.FC = () => {
   ) => {
     if (!attachmentUrl && !submissionId) return;
     try {
-      const token = localStorage.getItem('accessToken') || '';
+      const token = localStorage.getItem('lms_access_token') || localStorage.getItem('accessToken') || '';
       const streamUrl = submissionId
-        ? `http://localhost:4000/api/v1/lms/submissions/${submissionId}/attachment?token=${encodeURIComponent(token)}`
+        ? `/api/v1/lms/submissions/${submissionId}/attachment${token ? `?token=${encodeURIComponent(token)}` : ''}`
         : undefined;
 
       let blobUrl: string | undefined = streamUrl;
@@ -250,8 +250,8 @@ export const CoursesPage: React.FC = () => {
     } catch (err) {
       console.error('Failed to parse and open PDF:', err);
       if (submissionId) {
-        const token = localStorage.getItem('accessToken') || '';
-        const streamUrl = `http://localhost:4000/api/v1/lms/submissions/${submissionId}/attachment?token=${encodeURIComponent(token)}`;
+        const token = localStorage.getItem('lms_access_token') || localStorage.getItem('accessToken') || '';
+        const streamUrl = `/api/v1/lms/submissions/${submissionId}/attachment${token ? `?token=${encodeURIComponent(token)}` : ''}`;
         setActivePdfPreview({
           url: attachmentUrl,
           blobUrl: streamUrl,

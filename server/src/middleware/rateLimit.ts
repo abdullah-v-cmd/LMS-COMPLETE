@@ -16,20 +16,19 @@ interface ClientRecord {
 export const createRateLimiter = (options: RateLimitOptions) => {
   const clients = new Map<string, ClientRecord>();
   const { windowMs, max, message = 'Too many requests, please try again later.' } = options;
+  let lastCleanup = Date.now();
 
-  // Periodic cleanup of expired clients every 60 seconds
-  const cleanupInterval = setInterval(() => {
-    const now = Date.now();
-    for (const [key, record] of clients.entries()) {
-      if (now > record.resetTime) {
-        clients.delete(key);
+  const pruneExpired = (now: number) => {
+    // Lazy cleanup: prune at most once every 30 seconds or if map exceeds 500 entries
+    if (now - lastCleanup > 30000 || clients.size > 500) {
+      lastCleanup = now;
+      for (const [key, record] of clients.entries()) {
+        if (now > record.resetTime) {
+          clients.delete(key);
+        }
       }
     }
-  }, 60000);
-
-  if (cleanupInterval.unref) {
-    cleanupInterval.unref();
-  }
+  };
 
   return (req: Request, res: Response, next: NextFunction) => {
     // In test environment, skip rate limiting unless specifically testing rate limiter
@@ -43,6 +42,8 @@ export const createRateLimiter = (options: RateLimitOptions) => {
       'unknown-ip';
 
     const now = Date.now();
+    pruneExpired(now);
+
     let record = clients.get(ip);
 
     if (!record || now > record.resetTime) {
