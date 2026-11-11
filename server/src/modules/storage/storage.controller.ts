@@ -71,7 +71,8 @@ export class StorageController {
       StorageService.validateFileType(filename);
       StorageService.validateFileSignature(buffer, filename, mimeType);
 
-      const stored = await StorageService.uploadFile(buffer, filename, mimeType, { folder });
+      const isPublic = req.body.isPublic === 'true' || req.body.isPublic === true;
+      const stored = await StorageService.uploadFile(buffer, filename, mimeType, { folder, isPublic });
 
       return sendSuccess(res, stored, 201);
     } catch (error: any) {

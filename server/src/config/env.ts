@@ -29,6 +29,8 @@ export const envSchema = z.object({
   UPLOAD_DIR: z.string().default('./uploads'),
   STORAGE_PROVIDER: z.enum(['LOCAL', 'VERCEL_BLOB', 'S3']).default('LOCAL'),
   BLOB_READ_WRITE_TOKEN: z.string().optional(),
+  BLOB_PRIVATE_READ_WRITE_TOKEN: z.string().optional(),
+  BLOB_PUBLIC_READ_WRITE_TOKEN: z.string().optional(),
   S3_BUCKET: z.string().optional(),
   S3_REGION: z.string().default('us-east-1'),
   S3_ACCESS_KEY_ID: z.string().optional(),
@@ -73,8 +75,15 @@ export const envSchema = z.object({
   if (!config.DATABASE_URL.includes('localhost') && !/[?&]sslmode=(require|verify-ca|verify-full)(?:&|$)/i.test(config.DATABASE_URL)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['DATABASE_URL'], message: 'Production database URL must require TLS using sslmode=require or stronger' });
   }
-  if (config.STORAGE_PROVIDER === 'VERCEL_BLOB' && !config.BLOB_READ_WRITE_TOKEN) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['BLOB_READ_WRITE_TOKEN'], message: 'BLOB_READ_WRITE_TOKEN is required when STORAGE_PROVIDER is VERCEL_BLOB' });
+  if (config.STORAGE_PROVIDER === 'VERCEL_BLOB') {
+    const hasToken = config.BLOB_PRIVATE_READ_WRITE_TOKEN || config.BLOB_READ_WRITE_TOKEN;
+    if (!hasToken) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['BLOB_PRIVATE_READ_WRITE_TOKEN'],
+        message: 'BLOB_PRIVATE_READ_WRITE_TOKEN or BLOB_READ_WRITE_TOKEN is required when STORAGE_PROVIDER is VERCEL_BLOB',
+      });
+    }
   }
 });
 

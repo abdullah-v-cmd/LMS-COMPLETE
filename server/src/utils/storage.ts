@@ -64,6 +64,30 @@ const BLOCKED_EXTENSIONS = new Set([
 export class StorageService {
   private static uploadDir = path.resolve(process.cwd(), env.UPLOAD_DIR || './uploads');
 
+  /**
+   * Retrieves the read/write token for the private Vercel Blob store.
+   * Fallback priority: BLOB_PRIVATE_READ_WRITE_TOKEN -> BLOB_READ_WRITE_TOKEN.
+   */
+  public static getPrivateToken(): string | undefined {
+    return (
+      process.env.BLOB_PRIVATE_READ_WRITE_TOKEN ||
+      env.BLOB_PRIVATE_READ_WRITE_TOKEN ||
+      process.env.BLOB_READ_WRITE_TOKEN ||
+      env.BLOB_READ_WRITE_TOKEN
+    );
+  }
+
+  /**
+   * Retrieves the read/write token for the public Vercel Blob store.
+   * Explicitly requires BLOB_PUBLIC_READ_WRITE_TOKEN.
+   */
+  public static getPublicToken(): string | undefined {
+    return (
+      process.env.BLOB_PUBLIC_READ_WRITE_TOKEN ||
+      env.BLOB_PUBLIC_READ_WRITE_TOKEN
+    );
+  }
+
   private static ensureLocalUploadDir() {
     if (!fs.existsSync(this.uploadDir)) {
       try {
@@ -228,13 +252,16 @@ export class StorageService {
   /**
    * Uploads a file buffer to persistent storage (Vercel Blob, S3, or Local fallback).
    * In production, Vercel Blob is enforced and silent fallback to local/memory is strictly rejected.
-   * Sensitive files are assigned access: 'private' in Vercel Blob and served strictly via the authenticated LMS gateway.
+   * Sensitive folders are strictly written to the private Blob store (access: 'private')
+   * and served strictly via the authenticated LMS gateway (/api/v1/storage/${storageKey}).
+   * Public assets (avatars, general) use the public Blob store if BLOB_PUBLIC_READ_WRITE_TOKEN is set,
+   * or fallback to the private store with gateway proxying if only private store is available.
    */
   public static async uploadFile(
     buffer: Buffer,
     originalFilename: string,
     mimeType: string,
-    options: { folder?: StorageFolder | string } = {}
+    options: { folder?: StorageFolder | string; isPublic?: boolean } = {}
   ): Promise<StoredFile> {
     const maxBytes = env.MAX_FILE_SIZE_MB * 1024 * 1024;
     if (buffer.length > maxBytes) {
@@ -250,33 +277,55 @@ export class StorageService {
     const safeName = this.sanitizeFilename(originalFilename);
     const uniquePrefix = crypto.randomUUID();
     const folder = options.folder ? options.folder.replace(/[^a-zA-Z0-9_-]/g, '') : 'general';
-    const storageKey = `${folder}/${uniquePrefix}-${safeName}`;
-
-    const currentProvider = process.env.STORAGE_PROVIDER || env.STORAGE_PROVIDER;
-    const currentToken = process.env.BLOB_READ_WRITE_TOKEN || env.BLOB_READ_WRITE_TOKEN;
-    const isProduction = (process.env.NODE_ENV || env.NODE_ENV) === 'production';
     const isSensitive = SENSITIVE_FOLDERS.has(folder);
+
+    // Defense-in-depth: Sensitive documents can NEVER be marked as public or uploaded to a public store
+    if (options.isPublic === true && isSensitive) {
+      throw {
+        status: 400,
+        message: `Security violation: Sensitive folder '${folder}' cannot be stored in a public store or marked as public.`,
+      };
+    }
+
+    const storageKey = `${folder}/${uniquePrefix}-${safeName}`;
+    const currentProvider = process.env.STORAGE_PROVIDER || env.STORAGE_PROVIDER;
+    const isProduction = (process.env.NODE_ENV || env.NODE_ENV) === 'production';
 
     // Provider: Vercel Blob (Production standard)
     if (currentProvider === 'VERCEL_BLOB') {
-      if (!currentToken) {
+      const privateToken = this.getPrivateToken();
+      const publicToken = this.getPublicToken();
+
+      // Determine store separation:
+      // Sensitive files ALWAYS use the private store with access: 'private'.
+      // Non-sensitive files use the public store IF publicToken is available and not marked private.
+      const usePublicStore = !isSensitive && options.isPublic !== false && Boolean(publicToken);
+      const token = usePublicStore ? publicToken : privateToken;
+      const accessMode: 'public' | 'private' = usePublicStore ? 'public' : 'private';
+
+      if (!token) {
+        const missingVar = usePublicStore
+          ? 'BLOB_PUBLIC_READ_WRITE_TOKEN'
+          : 'BLOB_PRIVATE_READ_WRITE_TOKEN (or BLOB_READ_WRITE_TOKEN)';
         throw new Error(
-          'BLOB_READ_WRITE_TOKEN is missing. Vercel Blob storage requires a valid read/write token.'
+          `${missingVar} is missing. Vercel Blob ${accessMode} storage requires a valid read/write token.`
         );
       }
 
       try {
         const blob = await put(storageKey, buffer, {
-          access: isSensitive ? 'private' : 'public',
-          token: currentToken,
+          access: accessMode,
+          token,
           contentType: mimeType,
         });
 
-        logger.info(`File uploaded to Vercel Blob (${isSensitive ? 'private' : 'public'}): ${storageKey} (${buffer.length} bytes)`);
+        logger.info(
+          `File uploaded to Vercel Blob (${accessMode} store): ${storageKey} (${buffer.length} bytes)`
+        );
 
-        // Sensitive documents are routed through the authenticated LMS gateway
+        // Sensitive documents are routed strictly through the authenticated LMS gateway
         // Original private blob URLs are NEVER returned to clients or logged
-        const resolvedUrl = isSensitive ? `/api/v1/storage/${storageKey}` : blob.url;
+        const resolvedUrl = usePublicStore ? blob.url : `/api/v1/storage/${storageKey}`;
 
         return {
           key: storageKey,
@@ -346,15 +395,19 @@ export class StorageService {
       };
     }
 
+    const privateToken = this.getPrivateToken();
+    const publicToken = this.getPublicToken();
     const currentProvider = process.env.STORAGE_PROVIDER || env.STORAGE_PROVIDER;
-    const currentToken = process.env.BLOB_READ_WRITE_TOKEN || env.BLOB_READ_WRITE_TOKEN;
 
     // Handle remote HTTP/HTTPS URLs (Vercel Blob or external S3)
     if (keyOrUrl.startsWith('http://') || keyOrUrl.startsWith('https://')) {
       try {
         const headers: Record<string, string> = {};
-        if (currentToken && keyOrUrl.includes('blob.vercel-storage.com')) {
-          headers['Authorization'] = `Bearer ${currentToken}`;
+        if (keyOrUrl.includes('blob.vercel-storage.com')) {
+          // If accessing a private Vercel Blob URL, attach the private store bearer token
+          if (keyOrUrl.includes('.private.blob.vercel-storage.com') && privateToken) {
+            headers['Authorization'] = `Bearer ${privateToken}`;
+          }
         }
         const res = await fetch(keyOrUrl, { headers });
         if (res.ok) {
@@ -402,17 +455,44 @@ export class StorageService {
     }
 
     // Handle Vercel Blob lookup by key when configured
-    if (currentProvider === 'VERCEL_BLOB' && currentToken) {
+    if (currentProvider === 'VERCEL_BLOB') {
       try {
         const parts = safeKey.split('/').filter(Boolean);
         const folder = (parts[0] || '').toLowerCase();
         const isSensitive = SENSITIVE_FOLDERS.has(folder);
 
-        // Fetch via official Vercel Blob get() API with private access token
-        const blobRes = await get(safeKey, {
-          access: isSensitive ? 'private' : 'public',
-          token: currentToken,
-        });
+        let blobRes: any = null;
+
+        if (isSensitive) {
+          if (privateToken) {
+            blobRes = await get(safeKey, {
+              access: 'private',
+              token: privateToken,
+            });
+          }
+        } else {
+          // Public or non-sensitive asset: try public store first if configured, then private store
+          if (publicToken) {
+            try {
+              blobRes = await get(safeKey, {
+                access: 'public',
+                token: publicToken,
+              });
+            } catch {
+              // Not found in public store, proceed to private store
+            }
+          }
+          if (!blobRes && privateToken) {
+            try {
+              blobRes = await get(safeKey, {
+                access: 'private',
+                token: privateToken,
+              });
+            } catch {
+              // Not found in private store either
+            }
+          }
+        }
 
         if (blobRes && blobRes.stream) {
           const chunks: Buffer[] = [];
@@ -440,20 +520,43 @@ export class StorageService {
   public static async deleteFile(keyOrUrl: string): Promise<boolean> {
     if (!keyOrUrl) return false;
 
+    const privateToken = this.getPrivateToken();
+    const publicToken = this.getPublicToken();
     const currentProvider = process.env.STORAGE_PROVIDER || env.STORAGE_PROVIDER;
-    const currentToken = process.env.BLOB_READ_WRITE_TOKEN || env.BLOB_READ_WRITE_TOKEN;
 
     // Vercel Blob deletion
     if (keyOrUrl.includes('blob.vercel-storage.com') || currentProvider === 'VERCEL_BLOB') {
-      if (currentToken) {
-        try {
-          const safeKey = keyOrUrl.replace(/^\/api\/v1\/storage\//, '').replace(/\.\./g, '');
-          await del(safeKey, { token: currentToken });
-          logger.info(`Deleted file from Vercel Blob: ${safeKey}`);
-          return true;
-        } catch (err: any) {
-          logger.warn(`Failed to delete from Vercel Blob: ${err.message}`);
+      const safeKey = keyOrUrl.replace(/^\/api\/v1\/storage\//, '').replace(/\.\./g, '');
+      const parts = safeKey.split('/').filter(Boolean);
+      const folder = (parts[0] || '').toLowerCase();
+      const isSensitive = SENSITIVE_FOLDERS.has(folder);
+
+      try {
+        if (isSensitive) {
+          if (privateToken) {
+            await del(safeKey, { token: privateToken });
+            logger.info(`Deleted sensitive file from private Vercel Blob: ${safeKey}`);
+            return true;
+          }
+        } else {
+          // Public or non-sensitive asset: attempt deletion with public token, fallback to private token
+          if (publicToken) {
+            try {
+              await del(safeKey, { token: publicToken });
+              logger.info(`Deleted public asset from public Vercel Blob: ${safeKey}`);
+              return true;
+            } catch {
+              // Try private store next
+            }
+          }
+          if (privateToken) {
+            await del(safeKey, { token: privateToken });
+            logger.info(`Deleted asset from private Vercel Blob: ${safeKey}`);
+            return true;
+          }
         }
+      } catch (err: any) {
+        logger.warn(`Failed to delete from Vercel Blob: ${err.message}`);
       }
     }
 
