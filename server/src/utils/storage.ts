@@ -117,9 +117,21 @@ export class StorageService {
 
         logger.info(`File uploaded to Vercel Blob: ${blob.url} (${buffer.length} bytes)`);
 
+        // Sensitive documents are routed through the authenticated LMS gateway
+        const isSensitive = [
+          'students',
+          'teachers',
+          'courses',
+          'assignments',
+          'submissions',
+          'exams',
+          'counseling',
+        ].includes(folder);
+        const resolvedUrl = isSensitive ? `/api/v1/storage/${storageKey}` : blob.url;
+
         return {
           key: storageKey,
-          url: blob.url,
+          url: resolvedUrl,
           filename: safeName,
           mimeType,
           size: buffer.length,
@@ -222,6 +234,28 @@ export class StorageService {
         mimeType,
         filename,
       };
+    }
+
+    // Handle Vercel Blob lookup by key when configured
+    const currentProvider = process.env.STORAGE_PROVIDER || env.STORAGE_PROVIDER;
+    const currentToken = process.env.BLOB_READ_WRITE_TOKEN || env.BLOB_READ_WRITE_TOKEN;
+    if (currentProvider === 'VERCEL_BLOB' && currentToken) {
+      try {
+        const blobDetails = await head(safeKey, { token: currentToken });
+        if (blobDetails?.url) {
+          const res = await fetch(blobDetails.url);
+          if (res.ok) {
+            const arrayBuffer = await res.arrayBuffer();
+            return {
+              buffer: Buffer.from(arrayBuffer),
+              mimeType: blobDetails.contentType || 'application/octet-stream',
+              filename: path.basename(new URL(blobDetails.url).pathname) || 'download',
+            };
+          }
+        }
+      } catch (err: any) {
+        logger.warn(`Could not fetch blob from Vercel Blob for key ${safeKey}: ${err.message}`);
+      }
     }
 
     return null;

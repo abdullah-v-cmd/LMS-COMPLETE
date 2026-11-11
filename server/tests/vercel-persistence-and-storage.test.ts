@@ -5,6 +5,8 @@ import { SystemService } from '../src/modules/system/system.service';
 import { encryptGatewaySecret, decryptGatewaySecret } from '../src/modules/finance/encryption';
 import { StorageService } from '../src/utils/storage';
 import { UserRole } from '@prisma/client';
+import request from 'supertest';
+import { app } from '../src/app';
 
 describe('Vercel Production Persistence & Security Suite', () => {
   let testInstitutionId: string;
@@ -208,6 +210,28 @@ describe('Vercel Production Persistence & Security Suite', () => {
         if (originalToken) process.env.BLOB_READ_WRITE_TOKEN = originalToken;
         process.env.NODE_ENV = originalEnv;
       }
+    });
+
+    it('enforces authentication and authorization for sensitive documents', async () => {
+      // 1. Upload a sensitive counseling document
+      const sensitiveFile = await StorageService.uploadFile(
+        Buffer.from('Confidential Counseling Report: Case #12345'),
+        'counseling_case_report.pdf',
+        'application/pdf',
+        { folder: 'counseling' }
+      );
+
+      // 2. Unauthenticated request to /api/v1/storage/counseling/... must be rejected with 401
+      const unauthRes = await request(app).get(`/api/v1/storage/${sensitiveFile.key}`);
+      expect(unauthRes.status).toBe(401);
+      expect(unauthRes.body.error.code).toBe('UNAUTHORIZED');
+
+      // 3. Unauthenticated request via query key must also be rejected with 401
+      const queryRes = await request(app).get(`/api/v1/storage/file?key=${encodeURIComponent(sensitiveFile.key)}`);
+      expect(queryRes.status).toBe(401);
+
+      // 4. Clean up file
+      await StorageService.deleteFile(sensitiveFile.url);
     });
   });
 });

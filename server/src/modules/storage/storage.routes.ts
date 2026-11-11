@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { StorageController } from './storage.controller';
-import { requireAuth } from '../../middleware/auth';
+import { requireAuth, optionalAuth } from '../../middleware/auth';
 import { env } from '../../config/env';
 
 const router = Router();
@@ -15,9 +15,9 @@ const upload = multer({
 // Upload file (authenticated users)
 router.post('/upload', requireAuth, upload.single('file'), StorageController.upload);
 
-// Retrieve file
-router.get('/file', StorageController.getFile);
-router.get('/:folder/:filename', StorageController.getFile);
+// Retrieve file (optionalAuth to permit public avatars while gating sensitive documents)
+router.get('/file', optionalAuth, StorageController.getFile);
+router.get('/:folder/:filename', optionalAuth, StorageController.getFile);
 
 // Delete file (authenticated users)
 router.delete('/file', requireAuth, StorageController.deleteFile);

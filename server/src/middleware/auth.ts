@@ -56,3 +56,55 @@ export const requireAuth = async (
 
   next();
 };
+
+export const optionalAuth = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return next();
+  }
+
+  const token = authHeader.split(' ')[1];
+  const payload = verifyAccessToken(token);
+
+  if (!payload) {
+    return next();
+  }
+
+  try {
+    if (await redis.isTokenBlacklisted(token)) {
+      return next();
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        role: true,
+        institutionId: true,
+        isActive: true,
+      },
+    });
+
+    if (user && user.isActive) {
+      req.user = {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        role: user.role,
+        institutionId: user.institutionId,
+        permissions: payload.permissions || [],
+      };
+      req.institutionId = user.institutionId || undefined;
+    }
+  } catch {
+    // Non-fatal in optional auth
+  }
+
+  next();
+};

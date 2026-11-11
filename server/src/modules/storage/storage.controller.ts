@@ -47,13 +47,50 @@ export class StorageController {
   }
 
   /**
-   * Serves or redirects to a stored file.
+   * Serves or redirects to a stored file with role-based access control for sensitive assets.
    */
-  static async getFile(req: Request, res: Response, next: NextFunction) {
+  static async getFile(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const keyOrUrl = (req.query.key as string) || (req.query.url as string) || req.path;
       if (!keyOrUrl) {
         return sendError(res, 400, 'MISSING_FILE_KEY', 'File key or URL is required.');
+      }
+
+      // Extract folder name to check if document is sensitive
+      const sanitized = keyOrUrl.replace(/^\/api\/v1\/storage\//, '').replace(/\.\./g, '');
+      const folder = (req.params.folder || sanitized.split('/')[0] || '').toLowerCase();
+      const SENSITIVE_FOLDERS = new Set([
+        'students',
+        'teachers',
+        'courses',
+        'assignments',
+        'submissions',
+        'exams',
+        'counseling',
+      ]);
+
+      if (SENSITIVE_FOLDERS.has(folder)) {
+        if (!req.user) {
+          return sendError(
+            res,
+            401,
+            'UNAUTHORIZED',
+            'Authentication is required to access sensitive institutional documents.'
+          );
+        }
+
+        // Counseling records are restricted strictly to Admins and Counselors
+        if (folder === 'counseling') {
+          const counselorRoles = ['ROLE_SUPER_ADMIN', 'ROLE_INSTITUTION_ADMIN', 'ROLE_COUNSELOR'];
+          if (!counselorRoles.includes(req.user.role)) {
+            return sendError(
+              res,
+              403,
+              'FORBIDDEN',
+              'Access to confidential counseling records is strictly restricted.'
+            );
+          }
+        }
       }
 
       const file = await StorageService.getFile(keyOrUrl);
@@ -63,7 +100,15 @@ export class StorageController {
 
       res.setHeader('Content-Type', file.mimeType);
       res.setHeader('Content-Disposition', `inline; filename="${file.filename}"`);
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+
+      if (SENSITIVE_FOLDERS.has(folder)) {
+        res.setHeader('Cache-Control', 'private, no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+      } else {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      }
+
       return res.send(file.buffer);
     } catch (error: any) {
       next(error);
