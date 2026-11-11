@@ -111,9 +111,9 @@ async function runLoadBenchmark() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ usernameOrEmail: 'principal@alpha.edu', password: 'Password123!' }),
   });
-  const loginData = await loginRes.json();
-  const principalToken = loginData.data?.accessToken;
-  const institutionId = loginData.data?.user?.institutionId;
+  const loginData = (await loginRes.json()) as any;
+  const principalToken = loginData?.data?.accessToken;
+  const institutionId = loginData?.data?.user?.institutionId;
 
   if (!principalToken) {
     throw new Error('Failed to obtain principal authentication token for load test');

@@ -100,8 +100,10 @@ describe('Assessment Item Edit, Delete, Exam Linking & Subject Teacher Strict Au
           examSessionId,
           subjectId: mathSubjectId,
           examDate: new Date(),
+          startTime: '09:00 AM',
+          endTime: '12:00 PM',
           maxMarks: 50,
-          passingMarks: 20,
+          passMarks: 20,
         },
       });
       examScheduleId = createdSchedule.id;

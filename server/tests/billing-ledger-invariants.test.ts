@@ -194,8 +194,8 @@ describe('Financial Invariants & Ledger Consistency Rules', () => {
     });
 
     it('allows distinct checker with FINANCE_HEAD role', () => {
-      const makerUserId = 'user-clerk-1';
-      const reviewerUserId = 'user-finance-head-1';
+      const makerUserId: string = 'user-clerk-1';
+      const reviewerUserId: string = 'user-finance-head-1';
       const reviewerRole = 'ROLE_FINANCE_HEAD';
       const authorizedRoles = ['ROLE_SUPER_ADMIN', 'ROLE_INSTITUTION_ADMIN', 'ROLE_FINANCE_HEAD'];
       const isValidApproval = makerUserId !== reviewerUserId && authorizedRoles.includes(reviewerRole);
