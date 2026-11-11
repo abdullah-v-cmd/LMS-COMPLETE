@@ -3,6 +3,7 @@ import { LmsService } from './lms.service';
 import { sendSuccess } from '../../utils/response';
 import { AuthenticatedRequest, AuthenticatedUser } from '../../types';
 import { verifyAccessToken } from '../../utils/jwt';
+import { StorageService } from '../../utils/storage';
 
 export class LmsController {
   static async getCourses(req: AuthenticatedRequest, res: Response, next: NextFunction) {
@@ -174,6 +175,19 @@ export class LmsController {
         res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
         res.setHeader('Content-Length', buffer.length);
         return res.send(buffer);
+      }
+
+      // Check if attachment is a stored file path or storage URL
+      if (url.startsWith('/api/v1/storage') || (!url.startsWith('http://') && !url.startsWith('https://'))) {
+        const stored = await StorageService.getFile(url);
+        if (stored) {
+          res.setHeader('Content-Type', stored.mimeType);
+          res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+          res.setHeader('Content-Length', stored.buffer.length);
+          res.setHeader('X-Content-Type-Options', 'nosniff');
+          res.setHeader('Cache-Control', 'private, no-cache, no-store, must-revalidate');
+          return res.send(stored.buffer);
+        }
       }
 
       if (url.startsWith('http://') || url.startsWith('https://')) {

@@ -171,7 +171,7 @@ describe('Vercel Production Persistence & Security Suite', () => {
       ];
 
       for (const folder of folders) {
-        const dummyBuffer = Buffer.from(`Test content for folder: ${folder}`);
+        const dummyBuffer = Buffer.from(`%PDF-1.4 Test content for folder: ${folder}`);
         const stored = await StorageService.uploadFile(
           dummyBuffer,
           `${folder}_test.pdf`,
@@ -185,7 +185,7 @@ describe('Vercel Production Persistence & Security Suite', () => {
 
         const retrieved = await StorageService.getFile(stored.url);
         expect(retrieved).not.toBeNull();
-        expect(retrieved?.buffer.toString()).toBe(`Test content for folder: ${folder}`);
+        expect(retrieved?.buffer.toString()).toBe(`%PDF-1.4 Test content for folder: ${folder}`);
 
         const deleted = await StorageService.deleteFile(stored.url);
         expect(deleted).toBe(true);
@@ -215,7 +215,7 @@ describe('Vercel Production Persistence & Security Suite', () => {
     it('enforces authentication and authorization for sensitive documents', async () => {
       // 1. Upload a sensitive counseling document
       const sensitiveFile = await StorageService.uploadFile(
-        Buffer.from('Confidential Counseling Report: Case #12345'),
+        Buffer.from('%PDF-1.4 Confidential Counseling Report: Case #12345'),
         'counseling_case_report.pdf',
         'application/pdf',
         { folder: 'counseling' }

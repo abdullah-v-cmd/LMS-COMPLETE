@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { put, del, head } from '@vercel/blob';
+import { put, del, head, get } from '@vercel/blob';
 import { env } from '../config/env';
 import { logger } from './logger';
 
@@ -20,8 +20,19 @@ export type StorageFolder =
   | 'assignments'
   | 'submissions'
   | 'exams'
+  | 'counseling'
   | 'avatars'
   | 'general';
+
+export const SENSITIVE_FOLDERS = new Set<string>([
+  'students',
+  'teachers',
+  'courses',
+  'assignments',
+  'submissions',
+  'exams',
+  'counseling',
+]);
 
 const BLOCKED_EXTENSIONS = new Set([
   '.exe',
@@ -35,6 +46,19 @@ const BLOCKED_EXTENSIONS = new Set([
   '.jar',
   '.vbs',
   '.ps1',
+  '.msi',
+  '.scr',
+  '.dll',
+  '.so',
+  '.dylib',
+  '.com',
+  '.pif',
+  '.application',
+  '.gadget',
+  '.hta',
+  '.cpl',
+  '.msc',
+  '.reg',
 ]);
 
 export class StorageService {
@@ -59,7 +83,7 @@ export class StorageService {
   }
 
   /**
-   * Validates file extension against prohibited executable types.
+   * Validates file extension against prohibited executable and script types.
    */
   public static validateFileType(filename: string): void {
     const ext = path.extname(filename).toLowerCase();
@@ -72,8 +96,139 @@ export class StorageService {
   }
 
   /**
+   * Validates file signature (magic bytes) to prevent executable spoofing and polyglot attacks.
+   */
+  public static validateFileSignature(
+    buffer: Buffer,
+    filename: string,
+    mimeType?: string
+  ): void {
+    if (!buffer || buffer.length === 0) {
+      throw {
+        status: 400,
+        message: 'File buffer cannot be empty.',
+      };
+    }
+
+    // 1. Prohibit executable headers (Windows PE/MZ, Linux ELF, scripts, Mach-O/Java)
+    if (buffer.length >= 2 && buffer[0] === 0x4d && buffer[1] === 0x5a) {
+      // 'MZ' DOS / Windows PE Executable
+      throw {
+        status: 400,
+        message: 'Executable files (Windows PE/MZ) are strictly prohibited.',
+      };
+    }
+
+    if (
+      buffer.length >= 4 &&
+      buffer[0] === 0x7f &&
+      buffer[1] === 0x45 &&
+      buffer[2] === 0x4c &&
+      buffer[3] === 0x46
+    ) {
+      // '\x7fELF' Linux Executable
+      throw {
+        status: 400,
+        message: 'Executable files (Linux ELF) are strictly prohibited.',
+      };
+    }
+
+    if (buffer.length >= 2 && buffer[0] === 0x23 && buffer[1] === 0x21) {
+      // '#!' Shebang script header
+      throw {
+        status: 400,
+        message: 'Script files with shebang headers are strictly prohibited.',
+      };
+    }
+
+    if (
+      buffer.length >= 4 &&
+      buffer[0] === 0xca &&
+      buffer[1] === 0xfe &&
+      buffer[2] === 0xba &&
+      buffer[3] === 0xbe
+    ) {
+      // Mach-O Fat Binary or Java Class bytecode
+      throw {
+        status: 400,
+        message: 'Compiled class files and binary wrappers are strictly prohibited.',
+      };
+    }
+
+    const ext = path.extname(filename).toLowerCase();
+
+    // 2. Format-specific magic byte verification
+    if (ext === '.pdf') {
+      const header = buffer.subarray(0, 5).toString('ascii');
+      if (!header.startsWith('%PDF-')) {
+        throw {
+          status: 400,
+          message: 'Invalid PDF format: file missing standard %PDF- magic bytes header.',
+        };
+      }
+    } else if (ext === '.png') {
+      const isPng =
+        buffer.length >= 8 &&
+        buffer[0] === 0x89 &&
+        buffer[1] === 0x50 &&
+        buffer[2] === 0x4e &&
+        buffer[3] === 0x47 &&
+        buffer[4] === 0x0d &&
+        buffer[5] === 0x0a &&
+        buffer[6] === 0x1a &&
+        buffer[7] === 0x0a;
+      if (!isPng) {
+        throw {
+          status: 400,
+          message: 'Invalid PNG format: file signature does not match image/png specifications.',
+        };
+      }
+    } else if (ext === '.jpg' || ext === '.jpeg') {
+      const isJpg =
+        buffer.length >= 3 &&
+        buffer[0] === 0xff &&
+        buffer[1] === 0xd8 &&
+        buffer[2] === 0xff;
+      if (!isJpg) {
+        throw {
+          status: 400,
+          message: 'Invalid JPEG format: file signature does not match image/jpeg specifications.',
+        };
+      }
+    } else if (ext === '.webp') {
+      const isWebp =
+        buffer.length >= 12 &&
+        buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+        buffer.subarray(8, 12).toString('ascii') === 'WEBP';
+      if (!isWebp) {
+        throw {
+          status: 400,
+          message: 'Invalid WEBP format: file signature does not match image/webp specifications.',
+        };
+      }
+    } else if (ext === '.gif') {
+      const header = buffer.subarray(0, 6).toString('ascii');
+      if (!header.startsWith('GIF87a') && !header.startsWith('GIF89a')) {
+        throw {
+          status: 400,
+          message: 'Invalid GIF format: file signature does not match image/gif specifications.',
+        };
+      }
+    } else if (ext === '.csv' || ext === '.txt') {
+      // Reject binary null bytes inside text/csv files (polyglots)
+      if (buffer.subarray(0, Math.min(buffer.length, 1024)).includes(0x00)) {
+        throw {
+          status: 400,
+          message: 'Text and CSV files must not contain binary null bytes.',
+        };
+      }
+    }
+  }
+
+  /**
    * Uploads a file buffer to persistent storage (Vercel Blob, S3, or Local fallback).
    * In production, Vercel Blob is enforced and silent fallback to local/memory is strictly rejected.
+   * Sensitive files are assigned access: 'private' in Vercel Blob and served strictly via the authenticated LMS gateway.
    */
   public static async uploadFile(
     buffer: Buffer,
@@ -90,6 +245,7 @@ export class StorageService {
     }
 
     this.validateFileType(originalFilename);
+    this.validateFileSignature(buffer, originalFilename, mimeType);
 
     const safeName = this.sanitizeFilename(originalFilename);
     const uniquePrefix = crypto.randomUUID();
@@ -99,6 +255,7 @@ export class StorageService {
     const currentProvider = process.env.STORAGE_PROVIDER || env.STORAGE_PROVIDER;
     const currentToken = process.env.BLOB_READ_WRITE_TOKEN || env.BLOB_READ_WRITE_TOKEN;
     const isProduction = (process.env.NODE_ENV || env.NODE_ENV) === 'production';
+    const isSensitive = SENSITIVE_FOLDERS.has(folder);
 
     // Provider: Vercel Blob (Production standard)
     if (currentProvider === 'VERCEL_BLOB') {
@@ -110,23 +267,15 @@ export class StorageService {
 
       try {
         const blob = await put(storageKey, buffer, {
-          access: 'public',
+          access: isSensitive ? 'private' : 'public',
           token: currentToken,
           contentType: mimeType,
         });
 
-        logger.info(`File uploaded to Vercel Blob: ${blob.url} (${buffer.length} bytes)`);
+        logger.info(`File uploaded to Vercel Blob (${isSensitive ? 'private' : 'public'}): ${storageKey} (${buffer.length} bytes)`);
 
         // Sensitive documents are routed through the authenticated LMS gateway
-        const isSensitive = [
-          'students',
-          'teachers',
-          'courses',
-          'assignments',
-          'submissions',
-          'exams',
-          'counseling',
-        ].includes(folder);
+        // Original private blob URLs are NEVER returned to clients or logged
         const resolvedUrl = isSensitive ? `/api/v1/storage/${storageKey}` : blob.url;
 
         return {
@@ -178,6 +327,7 @@ export class StorageService {
 
   /**
    * Retrieves a file buffer and metadata by key or URL.
+   * Handles local filesystem, remote HTTP/HTTPS, and Vercel Blob private/public access.
    */
   public static async getFile(
     keyOrUrl: string
@@ -196,10 +346,17 @@ export class StorageService {
       };
     }
 
+    const currentProvider = process.env.STORAGE_PROVIDER || env.STORAGE_PROVIDER;
+    const currentToken = process.env.BLOB_READ_WRITE_TOKEN || env.BLOB_READ_WRITE_TOKEN;
+
     // Handle remote HTTP/HTTPS URLs (Vercel Blob or external S3)
     if (keyOrUrl.startsWith('http://') || keyOrUrl.startsWith('https://')) {
       try {
-        const res = await fetch(keyOrUrl);
+        const headers: Record<string, string> = {};
+        if (currentToken && keyOrUrl.includes('blob.vercel-storage.com')) {
+          headers['Authorization'] = `Bearer ${currentToken}`;
+        }
+        const res = await fetch(keyOrUrl, { headers });
         if (res.ok) {
           const arrayBuffer = await res.arrayBuffer();
           const mimeType = res.headers.get('content-type') || 'application/octet-stream';
@@ -217,7 +374,15 @@ export class StorageService {
     }
 
     // Handle local file system
-    const safeKey = keyOrUrl.replace(/^\/api\/v1\/storage\//, '').replace(/\.\./g, '');
+    let cleanKey = keyOrUrl;
+    if (cleanKey.startsWith('http://') || cleanKey.startsWith('https://')) {
+      try {
+        cleanKey = new URL(cleanKey).pathname;
+      } catch {
+        // fallback
+      }
+    }
+    const safeKey = cleanKey.replace(/^\/api\/v1\/storage\//, '').replace(/\.\./g, '');
     const localPath = path.join(this.uploadDir, safeKey);
     if (fs.existsSync(localPath)) {
       const buffer = fs.readFileSync(localPath);
@@ -237,21 +402,29 @@ export class StorageService {
     }
 
     // Handle Vercel Blob lookup by key when configured
-    const currentProvider = process.env.STORAGE_PROVIDER || env.STORAGE_PROVIDER;
-    const currentToken = process.env.BLOB_READ_WRITE_TOKEN || env.BLOB_READ_WRITE_TOKEN;
     if (currentProvider === 'VERCEL_BLOB' && currentToken) {
       try {
-        const blobDetails = await head(safeKey, { token: currentToken });
-        if (blobDetails?.url) {
-          const res = await fetch(blobDetails.url);
-          if (res.ok) {
-            const arrayBuffer = await res.arrayBuffer();
-            return {
-              buffer: Buffer.from(arrayBuffer),
-              mimeType: blobDetails.contentType || 'application/octet-stream',
-              filename: path.basename(new URL(blobDetails.url).pathname) || 'download',
-            };
+        const parts = safeKey.split('/').filter(Boolean);
+        const folder = (parts[0] || '').toLowerCase();
+        const isSensitive = SENSITIVE_FOLDERS.has(folder);
+
+        // Fetch via official Vercel Blob get() API with private access token
+        const blobRes = await get(safeKey, {
+          access: isSensitive ? 'private' : 'public',
+          token: currentToken,
+        });
+
+        if (blobRes && blobRes.stream) {
+          const chunks: Buffer[] = [];
+          for await (const chunk of blobRes.stream) {
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
           }
+          const buffer = Buffer.concat(chunks);
+          return {
+            buffer,
+            mimeType: blobRes.blob.contentType || 'application/octet-stream',
+            filename: path.basename(blobRes.blob.pathname) || 'download',
+          };
         }
       } catch (err: any) {
         logger.warn(`Could not fetch blob from Vercel Blob for key ${safeKey}: ${err.message}`);
@@ -267,12 +440,16 @@ export class StorageService {
   public static async deleteFile(keyOrUrl: string): Promise<boolean> {
     if (!keyOrUrl) return false;
 
+    const currentProvider = process.env.STORAGE_PROVIDER || env.STORAGE_PROVIDER;
+    const currentToken = process.env.BLOB_READ_WRITE_TOKEN || env.BLOB_READ_WRITE_TOKEN;
+
     // Vercel Blob deletion
-    if (keyOrUrl.includes('blob.vercel-storage.com') || env.STORAGE_PROVIDER === 'VERCEL_BLOB') {
-      if (env.BLOB_READ_WRITE_TOKEN) {
+    if (keyOrUrl.includes('blob.vercel-storage.com') || currentProvider === 'VERCEL_BLOB') {
+      if (currentToken) {
         try {
-          await del(keyOrUrl, { token: env.BLOB_READ_WRITE_TOKEN });
-          logger.info(`Deleted file from Vercel Blob: ${keyOrUrl}`);
+          const safeKey = keyOrUrl.replace(/^\/api\/v1\/storage\//, '').replace(/\.\./g, '');
+          await del(safeKey, { token: currentToken });
+          logger.info(`Deleted file from Vercel Blob: ${safeKey}`);
           return true;
         } catch (err: any) {
           logger.warn(`Failed to delete from Vercel Blob: ${err.message}`);

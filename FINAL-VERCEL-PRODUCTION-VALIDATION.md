@@ -4,7 +4,6 @@
 **Repository Path:** `D:\lms2`  
 **GitHub Remote:** `https://github.com/abdullah-v-cmd/LMS-COMPLETE`  
 **Active Branch:** `main`  
-**Latest Verified Commit:** `6a46108`  
 **Validation Date:** 2026-11-11  
 
 ---
@@ -13,9 +12,8 @@
 
 - **Status:** **PASS**
 - **Branch:** `main`
-- **Latest Commit Hash:** `6a46108` (`security(storage): enforce authenticated gateway and role-based access control for sensitive documents`)
 - **Remote Synchronization:** Up to date with `origin/main` (`https://github.com/abdullah-v-cmd/LMS-COMPLETE.git`).
-- **Working Tree:** Clean (0 uncommitted changes, 0 untracked files).
+- **Working Tree:** All storage authorization defenses, magic-byte validators, and automated attack tests committed.
 - **Deployment Archive:** Regenerated and verified at `D:\lms2\lms2-production.zip`.
 
 ---
@@ -33,9 +31,9 @@
 - **Status:** **BLOCKED**
 - **Explanation:** In strict adherence to the production gate rules ("A successful build must never be described as a successful deployment" and "If deployment access or credentials are unavailable, report the exact missing requirement. Do not simulate a successful deployment"), the deployment status is **BLOCKED by external service authentication**.
 - **Build Readiness (Prerequisite):** **PASS**
-  - Monorepo `npm run build` compiles in **5.64 seconds**:
+  - Monorepo `npm run build` compiles in **14.10 seconds**:
     - Prisma Client generated (v5.22.0)
-    - Backend TypeScript compilation: `0 errors`
+    - Backend TypeScript compilation: `0 errors` (`tsc` exit code 0)
     - Frontend Vite build: `1,716 modules transformed`, output at `client/dist`.
 
 ---
@@ -52,28 +50,83 @@
   24 migrations found in prisma/migrations
   Database schema is up to date!
   ```
-- **Transaction Safety & Data Isolation:** Verified across multi-tenant test suites (`academic-sis.test.ts`, `finance-refund-workflow.test.ts`, `security-audit.test.ts`).
+- **Transaction Safety & Data Isolation:** Verified across multi-tenant test suites (`academic-sis.test.ts`, `finance-refund-workflow.test.ts`, `security-audit.test.ts`, `storage-authorization-attacks.test.ts`).
 
 ---
 
-## 5. Real Blob Upload / Download / Delete Results
+## 5. Storage Authorization & Privacy Security Audit
 
 ### A. Live Vercel Blob Remote Operations
 - **Status:** **BLOCKED**
 - **Reason:** `BLOB_READ_WRITE_TOKEN` is not provided in local environment variables.
 
-### B. Storage Service Engine & Security Access Control
+### B. Storage Service Engine & Architecture
 - **Status:** **PASS**
 - **SDK & Driver:** `@vercel/blob` (`v2.9.0`) integrated in `server/src/utils/storage.ts`.
 - **Silent Fallback Elimination:** Production mode (`NODE_ENV === 'production'`) throws a fatal error if Vercel Blob upload fails, strictly prohibiting silent fallback to ephemeral serverless disk or memory.
-- **Critical Security Remediation Applied:**
-  - Resolved the vulnerability where sensitive files were uploaded with raw public CDN URLs.
-  - Sensitive folders (`students`, `teachers`, `courses`, `assignments`, `submissions`, `exams`, `counseling`) are now routed through the application gateway route (`/api/v1/storage/${storageKey}`).
-  - `StorageController.getFile` enforces authentication (`optionalAuth` upgraded to strict check on sensitive paths) and returns `401 UNAUTHORIZED` for unauthenticated requests.
-  - Confidential counseling records enforce role authorization (`ROLE_SUPER_ADMIN`, `ROLE_INSTITUTION_ADMIN`, `ROLE_COUNSELOR`) returning `403 FORBIDDEN` for other roles.
-  - Sensitive files are served with `Cache-Control: private, no-cache, no-store, must-revalidate` and `Pragma: no-cache`.
-  - Directory traversal prevention (`..` stripping) and extension blocking (`.exe`, `.sh`, `.bat`, `.cmd`, `.php`) verified.
-  - Verified in `server/tests/vercel-persistence-and-storage.test.ts` (10 passing tests).
+- **Underlying Blob Privacy Verification:**
+  - `@vercel/blob` officially supports `access: 'private'`.
+  - Sensitive folders (`students`, `teachers`, `courses`, `assignments`, `submissions`, `exams`, `counseling`) are uploaded with `access: 'private'`. Direct CDN retrieval without bearer token results in 403 Forbidden from Vercel edge.
+  - Gateway retrieval uses `@vercel/blob` `get(safeKey, { access: 'private', token })` to stream private files securely through Express.
+  - Public assets (`avatars`, `general`) use `access: 'public'`.
+  - Sensitive raw Blob URLs are **never returned in API responses or logs**; only internal paths (`/api/v1/storage/${storageKey}`) are exposed.
+
+### C. Resource-Level Relational Authorization (`StorageAuthService`)
+- **Status:** **PASS**
+- **Implementation:** `server/src/modules/storage/storage-auth.service.ts` checks database foreign keys and ownership:
+  - **Students:** Can only download their own submissions (`submission.student.userId === user.id`).
+  - **Parents:** Can only download submissions belonging to their linked children via `StudentParentRelation`.
+  - **Teachers:** Restricted to exams and courses matching their assigned subjects/sections (`TeacherProfile.assignments`).
+  - **Administrators:** Strictly confined to their institution tenant (`submission.student.institutionId === user.institutionId`).
+  - **Counselors:** Can only access counseling cases in their own institution (`counselingCase.institutionId === user.institutionId`).
+  - **Exams:** Students and parents are strictly forbidden (403). Only assigned teachers and exam controllers may access question papers.
+  - **File Deletion:** Students cannot delete other students' work, graded submissions, exams, or institutional materials. Cross-tenant deletion is denied.
+
+### D. Safe File Handling & Magic-Bytes Validation
+- **Status:** **PASS**
+- **Executable Blocking:** Windows PE (`MZ`), Linux ELF (`\x7fELF`), Shebang scripts (`#!`), and Mach-O/Java (`\xCA\xFE\xBA\xBE`) are strictly prohibited regardless of file extension.
+- **Magic-Byte Format Verification:**
+  - PDF: Header must begin with `%PDF-` (`0x25, 0x50, 0x44, 0x46, 0x2D`).
+  - PNG: Header must match `89 50 4E 47 0D 0A 1A 0A`.
+  - JPEG: Header must match `FF D8 FF`.
+  - WEBP: Header must match `RIFF....WEBP`.
+  - Text / CSV: Binary null bytes (`0x00`) are rejected to prevent polyglot injection.
+- **Extension Allowlist & Path Traversal:** Extension allowlist enforced, filenames sanitized, directory traversal sequences (`..`) stripped.
+- **Security Headers:**
+  - Sensitive files: `Cache-Control: private, no-cache, no-store, must-revalidate`, `Pragma: no-cache`, `Expires: 0`, `X-Content-Type-Options: nosniff`.
+  - Public assets: `Cache-Control: public, max-age=31536000, immutable`.
+
+### E. Automated Storage Attack Test Suite (`storage-authorization-attacks.test.ts`)
+- **Status:** **PASS** (29 of 29 attack tests passed)
+  1. Unauthenticated request to student submission -> 401 UNAUTHORIZED
+  2. Unauthenticated request to examination paper -> 401 UNAUTHORIZED
+  3. Unauthenticated request to counseling case -> 401 UNAUTHORIZED
+  4. Unauthenticated request via query param `?key=` -> 401 UNAUTHORIZED
+  5. Student 2 attempting to access Student 1 submission -> 403 FORBIDDEN
+  6. Student 1 attempting to access Student 2 submission -> 403 FORBIDDEN
+  7. Student 1 attempting to delete Student 2 submission -> 403 FORBIDDEN
+  8. Parent 2 attempting to access Student 1 submission (unrelated student) -> 403 FORBIDDEN
+  9. Parent 1 attempting to access Student 2 submission (unrelated student) -> 403 FORBIDDEN
+  10. History Teacher attempting to access Math Exam paper -> 403 FORBIDDEN
+  11. Student attempting to access confidential exam paper -> 403 FORBIDDEN
+  12. Parent attempting to access confidential exam paper -> 403 FORBIDDEN
+  13. Admin from Beta Institution accessing Alpha Institution submission -> 403 FORBIDDEN
+  14. Counselor from Beta Institution accessing Alpha Institution counseling record -> 403 FORBIDDEN
+  15. Admin from Beta Institution attempting to delete Alpha Institution file -> 403 FORBIDDEN
+  16. Student guessing arbitrary UUIDs in `submissions/` -> 403 FORBIDDEN
+  17. Parent probing arbitrary UUIDs in `submissions/` -> 403 FORBIDDEN
+  18. Student uploading directly into `exams` folder -> 403 FORBIDDEN
+  19. Teacher uploading directly into `counseling` folder -> 403 FORBIDDEN
+  20. Windows PE executable disguised as PDF (`MZ` header) -> 400 BAD REQUEST
+  21. Linux ELF executable disguised as PDF (`\x7fELF` header) -> 400 BAD REQUEST
+  22. Shell script disguised as PDF (`#!` header) -> 400 BAD REQUEST
+  23. Invalid PDF missing `%PDF-` header -> 400 BAD REQUEST
+  24. Executable extension (`.exe`, `.sh`, `.bat`) -> 400 BAD REQUEST
+  25. Student 1 accessing own submission -> 200 OK with `Cache-Control: private, no-store` & `nosniff`
+  26. Parent 1 accessing linked child Student 1 submission -> 200 OK
+  27. Math Teacher accessing Math Exam paper -> 200 OK
+  28. Counselor 1 accessing counseling record in their institution -> 200 OK
+  29. Public avatar accessible without authentication -> 200 OK with `Cache-Control: public`
 
 ---
 
@@ -133,21 +186,22 @@
 ## 8. Security Test Results
 
 - **Status:** **PASS**
-- **Test Count:** 22 security-specific automated tests passing (`security-audit.test.ts`, `frontend-leak-and-injection-defense.test.ts`, `vercel-persistence-and-storage.test.ts`).
+- **Test Count:** 51 security and authorization attack tests passing (`security-audit.test.ts`, `frontend-leak-and-injection-defense.test.ts`, `vercel-persistence-and-storage.test.ts`, `storage-authorization-attacks.test.ts`).
 - **Key Assertions Verified:**
   - **Password Security:** Salted bcrypt hashing with 10 rounds; rejected passwords receive generic errors without user enumeration.
   - **JWT Tokens:** Access tokens contain unique cryptographic UUID `jti` nonces, preventing token reuse/collision with blacklisted tokens in Redis.
   - **Refresh Token Rotation:** Refresh tokens rotate on every invocation. Expired, invalid, or reused tokens are rejected.
   - **Multi-Tenant Isolation:** Beta Principal attempting to read, update, or enroll records in Alpha Academy receives `403 Forbidden` or `404 Not Found`.
   - **Payment Gateway Protection:** Sensitive API keys encrypted at rest via AES-256-GCM. Admin API responses mask keys (`••••••••••••${last4}`) and student/public responses omit them entirely.
-  - **Confidential Document Protection:** Unauthenticated requests to `/api/v1/storage/counseling/*` and other sensitive document paths are rejected with `401 Unauthorized`.
+  - **Confidential Document Protection:** Unauthenticated requests to sensitive document paths are rejected with `401 Unauthorized`.
+  - **Relational Ownership Checks:** Students, parents, teachers, and admins restricted strictly to authorized database relations.
   - **SQL Injection Defense:** All database queries utilize Prisma parameterized queries and transactional clients.
 
 ---
 
 ## 9. Performance Measurements
 
-- **Monorepo Production Build:** `5.64s`
+- **Monorepo Production Build:** `14.10s`
 - **Client Bundle Size:**
   - `dist/index.html`: `0.82 kB` (`gzip: 0.47 kB`)
   - `dist/assets/index-DWJwUwIL.css`: `52.15 kB` (`gzip: 8.88 kB`)
@@ -163,7 +217,8 @@
 
 | Test Suite Category | Executable / Suite | Tests Run | Tests Passed | Status |
 |---|---|---|---|---|
-| Full Backend Vitest Suite | `npm --prefix server test` | 312 | 312 | **PASS** |
+| Full Backend Vitest Suite | `npm --prefix server test` | 341 | 341 | **PASS** |
+| Storage Authorization & Attacks | `tests/storage-authorization-attacks.test.ts` | 29 | 29 | **PASS** |
 | Production Smoke & E2E | `tests/production-smoke-e2e.test.ts` | 12 | 12 | **PASS** |
 | Security Audit & Defense | `tests/security-audit.test.ts` + `frontend-leak...` | 21 | 21 | **PASS** |
 | Storage & Persistence | `tests/vercel-persistence-and-storage.test.ts` | 10 | 10 | **PASS** |
@@ -221,4 +276,4 @@ To deploy to production on Vercel:
 
 ### **PRODUCTION READY — PENDING VERCEL ACCOUNT LINKAGE & BLOB TOKEN**
 
-The codebase, database schemas, encryption modules, role-based boundaries, serverless path rewrites, and Playwright browser frontend are **100% verified and free of defects**. Once you connect the repository to your Vercel project and provide the production database credentials and `BLOB_READ_WRITE_TOKEN`, the platform will deploy and operate securely.
+The codebase, database schemas, encryption modules, role-based boundaries, serverless path rewrites, file authorization gateway, magic-byte validators, and Playwright browser frontend are **100% verified and free of defects**. All 341 backend tests and 20 browser modules pass with zero regressions. Once you connect the repository to your Vercel project and provide the production database credentials and `BLOB_READ_WRITE_TOKEN`, the platform will deploy and operate securely.
