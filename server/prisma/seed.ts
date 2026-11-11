@@ -96,6 +96,7 @@ async function main() {
     { email: 'counselor@alpha.edu', username: 'counselor', role: UserRole.ROLE_COUNSELOR, first: 'Sean', last: 'Maguire', instId: alphaInst.id },
     { email: 'parent.john@alpha.edu', username: 'parent_john', role: UserRole.ROLE_PARENT, first: 'John', last: 'Doe', instId: alphaInst.id },
     { email: 'student.alice@alpha.edu', username: 'student_alice', role: UserRole.ROLE_STUDENT, first: 'Alice', last: 'Doe', instId: alphaInst.id },
+    { email: 'student.bob.examtest@alpha.edu', username: 'student_bob_examtest', role: UserRole.ROLE_STUDENT, first: 'Bob', last: 'ExamTester', instId: alphaInst.id },
     { email: 'auditor@alpha.edu', username: 'auditor', role: UserRole.ROLE_AUDITOR, first: 'Charles', last: 'Babbage', instId: alphaInst.id },
   ];
 
@@ -270,6 +271,24 @@ async function main() {
       bloodGroup: 'O+',
     },
   });
+
+  const bobUser = createdUsers['student_bob_examtest'];
+  if (bobUser) {
+    await prisma.studentProfile.upsert({
+      where: { userId: bobUser.id },
+      update: {},
+      create: {
+        userId: bobUser.id,
+        institutionId: alphaInst.id,
+        admissionNumber: 'ADM-2026-TESTBOB',
+        rollNumber: '2001',
+        sectionId: section.id,
+        dateOfBirth: new Date('2010-01-01'),
+        gender: 'MALE',
+        bloodGroup: 'B+',
+      },
+    });
+  }
 
   const parentUser = createdUsers['parent_john'];
   const parentProfile = await prisma.parentProfile.upsert({

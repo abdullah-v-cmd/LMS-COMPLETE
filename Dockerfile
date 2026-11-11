@@ -62,3 +62,4 @@ EXPOSE 4000
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 
 CMD ["node", "server/dist/server.js"]
+

@@ -102,7 +102,8 @@ export class StorageService {
    * Sanitizes a filename to prevent directory traversal and remove problematic characters.
    */
   public static sanitizeFilename(rawFilename: string): string {
-    const basename = path.basename(rawFilename).replace(/[^a-zA-Z0-9._-]/g, '_');
+    const normalized = rawFilename.replace(/\\/g, '/');
+    const basename = path.posix.basename(normalized).replace(/[^a-zA-Z0-9._-]/g, '_');
     return basename.slice(0, 100);
   }
 

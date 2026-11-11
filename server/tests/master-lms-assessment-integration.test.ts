@@ -3,7 +3,7 @@ import request from 'supertest';
 import { Express } from 'express';
 import { createApp } from '../src/app';
 import { prisma } from '../src/utils/prisma';
-import { SubjectResultStatus } from '@prisma/client';
+import { SubjectResultStatus, UserRole } from '@prisma/client';
 
 describe('MASTER LMS ACADEMIC ASSESSMENT, GRADING & EXAMINATION INTEGRATION SUITE (30-POINT SUITE)', () => {
   let app: Express;
@@ -37,6 +37,45 @@ describe('MASTER LMS ACADEMIC ASSESSMENT, GRADING & EXAMINATION INTEGRATION SUIT
 
   beforeAll(async () => {
     app = createApp();
+
+    // Ensure student Bob exists self-contained for tests that evaluate multi-student records
+    const aliceUser = await prisma.user.findUniqueOrThrow({
+      where: { email: 'student.alice@alpha.edu' },
+    });
+
+    const bobUser = await prisma.user.upsert({
+      where: { email: 'student.bob.examtest@alpha.edu' },
+      update: { passwordHash: aliceUser.passwordHash },
+      create: {
+        email: 'student.bob.examtest@alpha.edu',
+        username: 'student_bob_examtest',
+        passwordHash: aliceUser.passwordHash,
+        firstName: 'Bob',
+        lastName: 'ExamTester',
+        role: UserRole.ROLE_STUDENT,
+        institutionId: aliceUser.institutionId,
+      },
+    });
+
+    const aliceProfile = await prisma.studentProfile.findFirst({
+      where: { userId: aliceUser.id },
+    });
+    if (aliceProfile) {
+      await prisma.studentProfile.upsert({
+        where: { userId: bobUser.id },
+        update: {},
+        create: {
+          userId: bobUser.id,
+          institutionId: aliceProfile.institutionId,
+          admissionNumber: 'ADM-2026-TESTBOB',
+          rollNumber: '2001',
+          sectionId: aliceProfile.sectionId,
+          gender: 'MALE',
+          bloodGroup: 'B+',
+          dateOfBirth: new Date('2010-01-01'),
+        },
+      });
+    }
 
     // 1. Log in users
     const [tRes, cRes, aRes, bRes, pRes] = await Promise.all([
