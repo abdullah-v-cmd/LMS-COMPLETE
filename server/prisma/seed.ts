@@ -64,15 +64,20 @@ async function main() {
     },
   });
 
-  const academicTerm = await prisma.academicTerm.create({
-    data: {
-      academicYearId: academicYear.id,
-      name: 'Fall Term 2026',
-      startDate: new Date('2026-08-01'),
-      endDate: new Date('2026-12-20'),
-      isCurrent: true,
-    },
+  let academicTerm = await prisma.academicTerm.findFirst({
+    where: { academicYearId: academicYear.id, name: 'Fall Term 2026' },
   });
+  if (!academicTerm) {
+    academicTerm = await prisma.academicTerm.create({
+      data: {
+        academicYearId: academicYear.id,
+        name: 'Fall Term 2026',
+        startDate: new Date('2026-08-01'),
+        endDate: new Date('2026-12-20'),
+        isCurrent: true,
+      },
+    });
+  }
 
   // 4. Seed all 16 Roles in Alpha Academy
   const rolesData = [

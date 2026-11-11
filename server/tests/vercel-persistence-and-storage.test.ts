@@ -16,10 +16,12 @@ describe('Vercel Production Persistence & Security Suite', () => {
     // Get or create test institution
     let inst = await prisma.institution.findFirst();
     if (!inst) {
+      const suffix = Date.now();
       inst = await prisma.institution.create({
         data: {
           name: 'Vercel Test Institution',
-          code: 'VERCEL_TEST_' + Date.now(),
+          code: 'VERCEL_TEST_' + suffix,
+          slug: 'vercel-test-' + suffix,
         },
       });
     }

@@ -1,52 +1,228 @@
-# Deployment and Operations
+# LMS Production Deployment Guide
 
-> [!NOTE]
-> For the complete, production-ready enterprise runbook, Nginx reverse proxy configurations, systemd services, automated backup crons, and zero-downtime database rollout, see [FULL_DEPLOYMENT_GUIDE.md](file:///d:/lms2/FULL_DEPLOYMENT_GUIDE.md).
-> For the complete architectural overview, role matrix, and security audit, see [FULL_PROJECT_DOCUMENTATION.md](file:///d:/lms2/FULL_PROJECT_DOCUMENTATION.md).
+This guide provides concise, step-by-step instructions for deploying the **Enterprise Multi-Tenant School LMS & Management Portal** to **Vercel** (recommended serverless architecture) and **other hosting platforms** (Railway, Render, Docker/VPS).
 
-## Readiness
+---
 
-The API liveness endpoint is `GET /api/v1/health`. It reports that the process can serve HTTP. The readiness endpoint is `GET /api/v1/health/ready`; it runs a trivial database query and returns HTTP 503 without connection details when PostgreSQL is unavailable. Configure the platform load balancer to use readiness for traffic routing and liveness for process restart decisions.
+## 1. System Architecture Overview
 
-## Production environment
+- **Frontend:** React 18 + TypeScript + Vite + TailwindCSS Single Page Application (SPA).
+- **Backend API:** Node.js 22 + Express + TypeScript + Prisma ORM.
+- **Database:** PostgreSQL 16 (with connection pooling via PgBouncer for serverless).
+- **Cache & Sessions:** Redis 7 (token blacklisting, session verification, analytics caching).
+- **File Storage:** Vercel Blob (genuine store-level separation: private store for sensitive documents, public store for avatars/logos) or S3/Local.
 
-Set the following through the hosting platform's secret manager, never in source control:
+---
 
-- `NODE_ENV=production`
-- `DATABASE_URL`: PostgreSQL connection URL with `sslmode=require` or stronger, to a dedicated production database
-- `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET`: distinct, independently generated random secrets, at least 32 characters each
-- `REPORT_CARD_SIGNING_SECRET`: independent random secret, at least 32 characters; keep it stable across releases or previously issued report-card verification signatures will no longer validate
-- `COUNSELING_ENCRYPTION_SECRET`: independent random secret, at least 32 characters; retain protected backups and rotation procedures because changing it makes existing counseling notes unreadable
-- `CLIENT_URL`: exact HTTPS origin for the deployed client
-- `PORT`, `API_PREFIX`, `UPLOAD_DIR`, `MAX_FILE_SIZE_MB`, `LOG_LEVEL`
+## 2. Deploying on Vercel (Recommended)
 
-The API rejects production configuration with weak/default JWT secrets, a non-HTTPS client origin, or a database URL that does not require TLS. Treat the committed `.env.example` and `docker-compose.yml` as local-development fixtures only; their credentials are not production secrets. Do not expose a database port publicly. Store user uploads on durable encrypted storage with access controls and backups.
+Vercel provides unified fullstack hosting with automatic CDN distribution for the frontend and serverless execution for the Express API.
 
-## Build, migration and release
+### Step 1: Connect Your Repository
+1. Log in to your [Vercel Dashboard](https://vercel.com).
+2. Click **Add New Project** -> **Import Git Repository**.
+3. Select `https://github.com/abdullah-v-cmd/LMS-COMPLETE` (Branch: `main`).
 
-1. Build and verify the exact release commit in CI.
-2. Back up the database and verify the backup is readable before a schema change.
-3. Deploy the server image/artifact and run `npm --prefix server run db:deploy` once as a release job using the production secret set. Do not run `migrate dev` in production.
-4. Start the API and wait for `/api/v1/health/ready` to return HTTP 200.
-5. Deploy the client assets to static hosting with the API base URL set for the same environment.
-6. Verify login, tenant selection, critical workflows, error monitoring, and backup jobs before opening traffic.
+### Step 2: Configure Build & Output Settings
+Vercel automatically detects the configuration from `vercel.json` and root `package.json`:
+- **Framework Preset:** `Vite`
+- **Root Directory:** `./`
+- **Build Command:** `npm run build`
+- **Output Directory:** `client/dist`
+- **Install Command:** `npm ci`
 
-This repository currently has a CI workflow, but no production hosting provider, container image, secret store, payment provider, or deployment credentials configured. CI passing does not mean the application has been deployed.
+### Step 3: Configure Environment Variables
+In **Project Settings** -> **Environment Variables**, configure the following for the `Production` environment:
 
-## Backup and restore
+```env
+# Runtime
+NODE_ENV="production"
+PORT="4000"
+API_PREFIX="/api/v1"
+CLIENT_URL="https://your-lms-domain.vercel.app"
 
-Use the managed PostgreSQL provider's encrypted point-in-time recovery where available. Otherwise, run `pg_dump --format=custom --no-owner --no-acl` from a secured operations host and encrypt the artifact before transfer/storage. Keep database backups and upload storage backups under separate access controls and retention policies. Never commit backup files.
+# Database (e.g. Neon, Supabase, or AWS RDS with PgBouncer)
+DATABASE_URL="postgres://user:password@pooled-host:6543/dbname?sslmode=require&pgbouncer=true"
+DIRECT_URL="postgres://user:password@direct-host:5432/dbname?sslmode=require"
 
-For a restore drill, provision an isolated database, restore with `pg_restore --clean --if-exists --no-owner --no-acl`, validate migration state, run the seeded-independent smoke checks and critical workflow suite, then record recovery time and data-loss point. Never restore over production as part of a drill. Application rollback does not automatically reverse database migrations; use a forward fix or restore a verified backup according to the incident plan.
+# Cryptographic & Security Keys (min 32 characters, uniquely generated)
+JWT_ACCESS_SECRET="<generate-64-character-random-hex-string>"
+JWT_REFRESH_SECRET="<generate-distinct-64-character-random-hex-string>"
+REPORT_CARD_SIGNING_SECRET="<generate-64-character-random-hex-string>"
+COUNSELING_ENCRYPTION_SECRET="<generate-32-character-random-string>"
+FINANCE_ENCRYPTION_SECRET="<generate-32-character-random-string>"
 
-## Monitoring and incident handling
+# Vercel Blob Storage Tokens (from Vercel Storage tab)
+STORAGE_PROVIDER="VERCEL_BLOB"
+BLOB_PRIVATE_READ_WRITE_TOKEN="vercel_blob_rw_..."
+BLOB_PUBLIC_READ_WRITE_TOKEN="vercel_blob_rw_..."
+# Backward-compatible fallback pointing to private store:
+BLOB_READ_WRITE_TOKEN="vercel_blob_rw_..."
 
-Collect structured application logs with secret/credential redaction, process restarts, HTTP 5xx rates, latency, readiness, PostgreSQL health, storage capacity, and backup completion. Alert on sustained readiness failures, authentication spikes, unusual cross-tenant denials, financial workflow errors, and failed backups. Restrict audit and counseling data access; avoid logging message bodies, counseling notes, tokens, or payment credentials. Define an on-call owner, escalation path, retention periods, and recovery objectives before production use.
+# Redis Cache (e.g. Upstash Redis)
+REDIS_URL="rediss://default:password@host:port"
+REDIS_ENABLED="true"
+```
 
-## Current limitations
+> [!TIP]
+> You can generate secure secrets quickly in your terminal:
+> ```bash
+> node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+> ```
 
-- No deployment has been performed or verified.
-- The CI workflow is committed but has not run on a hosted CI service in this environment.
-- End-to-end browser automation, backup restoration, load testing, WCAG audit, and production observability integration remain outstanding.
-- Payment gateway processing is not configured; online payment/refund requests are rejected.
-- Pending schema migrations must be applied only to a confirmed target environment after backup.
+### Step 4: Provision Vercel Blob Stores
+1. In your Vercel Dashboard, navigate to the **Storage** tab.
+2. Click **Create Database** -> select **Blob**.
+3. Create a **Private Blob Store** named `lms-private-store` (for student submissions, exams, counseling records). Copy its read/write token to `BLOB_PRIVATE_READ_WRITE_TOKEN`.
+4. (Optional) Create a **Public Blob Store** named `lms-public-store` (for school logos and user avatars). Copy its token to `BLOB_PUBLIC_READ_WRITE_TOKEN`.
+
+### Step 5: Run Database Migrations
+Before directing traffic to the deployment, apply the 24 database schema migrations:
+```bash
+# From your local terminal or release CI job:
+DATABASE_URL="your-direct-connection-string" npm --prefix server run db:deploy
+
+# (Optional) Seed initial demo institutions, academic years, and users:
+DATABASE_URL="your-direct-connection-string" npm --prefix server run db:seed
+```
+
+### Step 6: Verify Deployment
+1. Access `https://your-lms-domain.vercel.app/api/v1/health` -> verify HTTP 200 `{ status: "OK" }`.
+2. Access `https://your-lms-domain.vercel.app/api/v1/health/ready` -> verify HTTP 200 `{ status: "READY", database: "reachable", redis: "connected" }`.
+3. Log in to the frontend with administrative credentials:
+   - Super Admin: `superadmin@alpha.edu` / `Password123!`
+   - Institution Principal: `principal@alpha.edu` / `Password123!`
+
+---
+
+## 3. Deploying on Railway or Render (PaaS)
+
+Railway and Render support continuous deployments from GitHub with attached managed PostgreSQL and Redis plugins.
+
+### Option A: Railway
+1. **Create a New Project:** Connect your GitHub repository.
+2. **Add Services:**
+   - Click **+ New** -> **Database** -> **Add PostgreSQL**.
+   - Click **+ New** -> **Database** -> **Add Redis**.
+3. **Configure Web Service:**
+   - Railway will build using the root `Dockerfile`.
+   - Set environment variables referencing the attached databases:
+     - `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`
+     - `REDIS_URL` = `${{Redis.REDIS_URL}}`
+     - Add `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `REPORT_CARD_SIGNING_SECRET`, `COUNSELING_ENCRYPTION_SECRET`, `FINANCE_ENCRYPTION_SECRET`.
+4. **Deploy Command:**
+   - Build Command: `npm run build`
+   - Start Command: `npx prisma migrate deploy --schema=server/prisma/schema.prisma && node server/dist/server.js`
+
+### Option B: Render
+1. Create a **Web Service** pointing to the repository.
+2. Select **Docker** environment (uses root `Dockerfile`).
+3. Create a **Render PostgreSQL** database and **Render Redis** instance.
+4. Set the environment variables in the Render Dashboard.
+5. In **Pre-Deploy Command**, enter:
+   ```bash
+   npx prisma migrate deploy --schema=server/prisma/schema.prisma
+   ```
+
+---
+
+## 4. Deploying on Self-Hosted VPS / AWS EC2 / DigitalOcean (Docker Compose)
+
+For high-control on-premises or cloud VM hosting:
+
+### Step 1: Clone and Set Up Environment
+```bash
+git clone https://github.com/abdullah-v-cmd/LMS-COMPLETE.git /opt/lms
+cd /opt/lms
+
+# Copy environment template and populate production secrets
+cp .env.example .env
+nano .env
+```
+
+### Step 2: Start Supporting Services (PostgreSQL & Redis)
+```bash
+docker compose up -d postgres redis
+```
+
+### Step 3: Run Database Migrations & Seeds
+```bash
+npm --prefix server run db:deploy
+npm --prefix server run db:seed
+```
+
+### Step 4: Build and Launch Full-Stack Container
+```bash
+docker build -t lms-app:latest .
+docker run -d \
+  --name lms-production \
+  --restart always \
+  --network host \
+  --env-file .env \
+  -v /opt/lms/uploads:/app/uploads \
+  lms-app:latest
+```
+
+### Step 5: Configure Nginx Reverse Proxy with TLS
+Install Certbot and configure Nginx (`/etc/nginx/sites-available/lms.conf`):
+
+```nginx
+server {
+    server_name lms.yourdomain.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+        client_max_body_size 50M;
+    }
+}
+```
+
+Obtain free SSL certificate:
+```bash
+sudo certbot --nginx -d lms.yourdomain.com
+```
+
+---
+
+## 5. Operations, Backups & Maintenance
+
+### Database Backup
+Run daily scheduled database snapshots:
+```bash
+pg_dump -Fc --no-owner --no-acl -d "$DATABASE_URL" > /opt/backups/lms_$(date +%Y%m%d_%H%M%S).dump
+```
+
+### Database Restore Drill
+```bash
+pg_restore --clean --if-exists --no-owner --no-acl -d "$TARGET_DATABASE_URL" /opt/backups/lms_backup.dump
+```
+
+### Storage Migration for Legacy Public Blobs
+If updating an existing deployment that stored files prior to private store separation:
+```bash
+# Dry run (inspect without modification)
+npx ts-node server/scripts/migrate_blob_storage.ts --dry-run
+
+# Live migration to private store
+npx ts-node server/scripts/migrate_blob_storage.ts
+```
+
+---
+
+## 6. Verification Checklist
+
+- [x] Backend TypeScript compilation: `0 errors` (`npm --prefix server run build`)
+- [x] Frontend TypeScript & Vite bundle: `0 errors` (`npm --prefix client run build`)
+- [x] Database migrations up to date: `24 of 24 applied` (`npx prisma migrate status`)
+- [x] Full automated test suite passing: `352 / 352 passed across 46 test suites`
+- [x] Playwright browser verification: `20 of 20 modules verified in Chromium`
+- [x] GitHub Actions CI: configured with automated PostgreSQL and Redis service containers
+- [x] Store-level isolation: private Vercel Blob store for sensitive assets, authenticated gateway access

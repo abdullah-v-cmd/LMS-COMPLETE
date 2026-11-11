@@ -56,7 +56,7 @@ async function testFullLifecycle() {
       { name: 'Final', weightagePercentage: 40 },
     ],
   });
-  console.log('Created scheme:', scheme.id, 'categories:', scheme.categories.map((c: any) => `${c.name}: ${c.weightagePercentage}%`));
+  console.log('Created scheme:', scheme.id, 'categories:', (scheme as any).categories?.map((c: any) => `${c.name}: ${c.weightagePercentage}%`));
 
   // Check initial gradebook
   console.log('\n--- Step 2: Initial Gradebook ---');
@@ -71,6 +71,7 @@ async function testFullLifecycle() {
   });
   if (!course) {
     const tp = await prisma.teacherProfile.findFirst({ where: { userId: teacherUser.id } });
+    if (!tp) throw new Error('Teacher profile not found');
     course = await prisma.course.create({
       data: {
         institutionId,
@@ -78,7 +79,8 @@ async function testFullLifecycle() {
         sectionId: alice.sectionId,
         academicTermId: term.id,
         title: 'Math 101 Course',
-        teacherId: tp?.id,
+        code: 'MATH101-' + Date.now(),
+        teacherId: tp.id,
       },
     });
   }

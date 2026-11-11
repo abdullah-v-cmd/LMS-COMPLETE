@@ -169,7 +169,7 @@ async function runLoadBenchmark() {
   console.log('[5/5] Benchmarking Ledger Invariant Balance Audits (50 reqs, concurrency 5)...');
   results.push(
     await executeConcurrentWorkload('Ledger Balance Audit', 50, 5, async () => {
-      const entries = await prisma.generalLedgerEntry.findMany({
+      const entries = await prisma.financialLedgerEntry.findMany({
         where: { institutionId },
         select: { debitAmount: true, creditAmount: true },
       });
